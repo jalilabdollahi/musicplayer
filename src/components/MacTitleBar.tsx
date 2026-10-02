@@ -24,9 +24,11 @@ export const MacTitleBar: React.FC<MacTitleBarProps> = ({
   onToggleFullscreen,
 }) => {
   return (
-    <header className="h-11 bg-[#0b0e14]/90 backdrop-blur-md border-b border-white/[0.06] flex items-center justify-between px-4 select-none shrink-0 z-30">
-      {/* macOS Traffic Lights */}
+    <header className="app-titlebar h-11 bg-[#0b0e14]/90 backdrop-blur-md border-b border-white/[0.06] flex items-center justify-between px-4 select-none shrink-0 z-30">
       <div className="flex items-center gap-2">
+        {/* Decorative macOS traffic lights, for the in-browser look only. The
+            installed app gets real ones from the OS, so these are hidden. */}
+        <div className="app-faux-window-controls flex items-center gap-2">
         <button
           onClick={() => {}}
           title="Close window (macOS command+W)"
@@ -53,6 +55,7 @@ export const MacTitleBar: React.FC<MacTitleBarProps> = ({
         </button>
 
         <div className="h-4 w-[1px] bg-white/10 ml-2 mr-1" />
+        </div>
 
         <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
           <span className="tracking-tight text-white font-bold">HIGHFI</span>

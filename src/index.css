@@ -111,3 +111,39 @@ input[type="range"]:hover::-webkit-slider-thumb {
   animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+
+/*
+ * Installed-app window chrome.
+ *
+ * In a browser tab the header renders its own macOS-style traffic lights. Once
+ * installed, the OS draws real ones, so the decorative set is dropped to avoid
+ * a second, non-functional copy.
+ */
+@media (display-mode: standalone), (display-mode: minimal-ui),
+       (display-mode: fullscreen), (display-mode: window-controls-overlay) {
+  .app-faux-window-controls {
+    display: none;
+  }
+}
+
+/*
+ * With window-controls-overlay the header IS the title bar: it is inset past
+ * the real window controls (left on macOS) and made draggable, so the app
+ * shows one bar instead of stacking its own under the browser's.
+ */
+@media (display-mode: window-controls-overlay) {
+  .app-titlebar {
+    height: env(titlebar-area-height, 2.75rem);
+    padding-left: calc(env(titlebar-area-x, 0px) + 1rem);
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  /* Controls inside a draggable region need to opt back out to stay clickable. */
+  .app-titlebar button,
+  .app-titlebar a,
+  .app-titlebar input {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+}
