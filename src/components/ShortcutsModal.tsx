@@ -15,7 +15,7 @@ const SHORTCUTS: [string, string[]][] = [
   ["Mute", [mod, "M"]],
   ["Shuffle", [mod, "S"]],
   ["Repeat", [mod, "R"]],
-  ["Playback speed (1x / 1.5x / 2x)", [mod, "."]],
+  ["Playback speed (0.5x – 2x)", [mod, "."]],
   ["Lyrics", [mod, "L"]],
   ["Equalizer", [mod, "E"]],
   ["Search", ["/"]],

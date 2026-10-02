@@ -167,14 +167,14 @@ export function VolumeControl({
   );
 }
 
-export const PLAYBACK_RATES = [1, 1.5, 2];
+export const PLAYBACK_RATES = [0.5, 1, 1.5, 2];
 
 export function nextPlaybackRate(rate: number): number {
   const i = PLAYBACK_RATES.indexOf(rate);
   return PLAYBACK_RATES[(i + 1) % PLAYBACK_RATES.length];
 }
 
-/** Cycles 1x → 1.5x → 2x. Tinted whenever the speed is not normal. */
+/** Cycles 1x → 1.5x → 2x → 0.5x. Tinted whenever the speed is not normal. */
 export function SpeedButton({ rate, onCycle, className = "" }: { rate: number; onCycle: () => void; className?: string }) {
   const changed = rate !== 1;
   return (
