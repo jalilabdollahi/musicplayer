@@ -1,14 +1,9 @@
 # Deploying HighFi Player
 
-Target: `91.98.123.217`, served at `https://music.mydailyreport.xyz`.
+Target: `91.98.123.217`, served at **http://91.98.123.217:3012**.
 
-The container binds to loopback only and host nginx fronts it, matching the
-other apps on that box. Public TLS is terminated by Cloudflare; the firewall
-accepts 80/443 from Cloudflare ranges only.
-
-HTTPS is not optional here. The app is an installable PWA, and service workers
-and the File System Access API both require a secure context, so over plain
-HTTP the install prompt and offline support disappear.
+The container publishes port 3012 on all interfaces and is reached directly by
+IP, with `ufw allow 3012/tcp`. No reverse proxy is involved on this path.
 
 ## Update an existing deploy
 
@@ -19,17 +14,29 @@ rsync -az --delete \
 ssh 91.98.123.217 'cd /opt/highfi-player && docker compose up -d --build'
 ```
 
-## First-time setup
+## What plain HTTP costs
 
-1. Cloudflare DNS: `music` A record -> `91.98.123.217`, proxied (orange cloud).
-2. Copy `nginx-highfi-player.conf` to `/etc/nginx/sites-available/highfi-player`,
-   symlink it into `sites-enabled`, then `nginx -t && systemctl reload nginx`.
-3. Issue the origin certificate once DNS resolves:
-   `certbot --nginx -d music.mydailyreport.xyz`
-4. Set the Cloudflare SSL/TLS mode to Full (or Full (strict)).
+A page served over http:// from an IP is not a secure context, which disables:
 
-## Notes
+- service workers, so no offline support and no PWA install prompt
+- the File System Access API, so no "link a folder" picker
 
-The library lives in the browser's IndexedDB, keyed to the origin. Nothing is
-stored server-side, so there is no database, no volume and no backup to take -
-and moving the app to a different origin starts from an empty library.
+Importing still works: the file picker and drag-and-drop are not gated on a
+secure context. Audio files are read in the browser and kept in IndexedDB on
+the listener's own machine - nothing is uploaded, and the server stores
+nothing. There is no database, no volume and no backup to take.
+
+The library is keyed to the origin, so `http://91.98.123.217:3012` and any
+other hostname each start from an empty library.
+
+## Optional: hostname with HTTPS
+
+`deploy/nginx-highfi-player.conf` still exists and remains enabled on the host
+for `music.mydailyreport.xyz`, proxying to the same container. That path has a
+Let's Encrypt certificate and restores PWA install and the folder picker. It
+can be removed with:
+
+```sh
+rm /etc/nginx/sites-enabled/highfi-player && nginx -t && systemctl reload nginx
+certbot delete --cert-name music.mydailyreport.xyz
+```
