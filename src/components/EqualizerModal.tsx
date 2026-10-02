@@ -59,6 +59,11 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({
     onUpdateSettings({ isSpatialAudioEnabled: enabled });
   };
 
+  const handleStereoWidthChange = (width: number) => {
+    audioEngine.setStereoWidth(width);
+    onUpdateSettings({ spatialStereoWidth: width });
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 select-none">
       <div className="w-full max-w-2xl bg-[#0f121a] border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
@@ -206,8 +211,33 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({
                 />
               </div>
               <p className="text-[10px] text-slate-400 leading-relaxed">
-                Applies acoustic Haas effect delay to expand the stereo soundstage for headphones.
+                Mid/side matrix with a 15ms Haas delay on the side signal to expand the
+                stereo soundstage for headphones.
               </p>
+
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] font-medium text-slate-400">Stereo Width</span>
+                  <span className="text-[11px] font-mono text-indigo-300 font-bold">
+                    {settings.spatialStereoWidth.toFixed(2)}×
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={2}
+                  step={0.05}
+                  value={settings.spatialStereoWidth}
+                  disabled={!settings.isSpatialAudioEnabled}
+                  onChange={(e) => handleStereoWidthChange(parseFloat(e.target.value))}
+                  className="w-full h-1.5 bg-white/10 rounded-full cursor-pointer disabled:opacity-40"
+                />
+                <div className="flex justify-between text-[9px] font-mono text-slate-600 mt-1">
+                  <span>MONO</span>
+                  <span>1.0 NEUTRAL</span>
+                  <span>WIDE</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

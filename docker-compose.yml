@@ -1,0 +1,8 @@
+services:
+  aura:
+    build: .
+    image: aura-hires-audio-player:latest
+    container_name: aura-player
+    ports:
+      - "8088:80"
+    restart: unless-stopped

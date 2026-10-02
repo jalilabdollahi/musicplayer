@@ -33,15 +33,55 @@ export function getDB(): Promise<IDBDatabase> {
     };
 
     request.onsuccess = () => {
-      resolve(request.result);
+      const db = request.result;
+      // If another tab later opens a newer schema version, release this
+      // connection so its upgrade can proceed instead of blocking forever.
+      db.onversionchange = () => db.close();
+      resolve(db);
     };
 
     request.onerror = () => {
       reject(request.error);
     };
+
+    // Another tab is holding an older connection open. Without this the open
+    // request just hangs and the library silently comes up empty.
+    request.onblocked = () => {
+      reject(
+        new Error(
+          'AuraAudioDB upgrade is blocked by another open tab. Close other copies of the app and reload.'
+        )
+      );
+    };
   });
 
   return dbPromise;
+}
+
+const SEEDED_FLAG = 'aura.demoContentSeeded';
+
+/**
+ * Whether the bundled demo library has already been written once.
+ *
+ * Deliberately kept in localStorage rather than an IndexedDB store: it is one
+ * boolean, and adding a store would mean a schema version bump, which another
+ * open tab can block indefinitely. Losing the flag is harmless - the demo
+ * content would simply be seeded once more.
+ */
+export function hasSeededDemoContent(): boolean {
+  try {
+    return localStorage.getItem(SEEDED_FLAG) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function markDemoContentSeeded(): void {
+  try {
+    localStorage.setItem(SEEDED_FLAG, 'true');
+  } catch {
+    // Private mode or blocked site data; seeding again is an acceptable cost.
+  }
 }
 
 /**

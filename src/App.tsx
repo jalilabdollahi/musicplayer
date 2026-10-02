@@ -23,6 +23,8 @@ import {
   getAllPlaylists,
   savePlaylist,
   deletePlaylist,
+  hasSeededDemoContent,
+  markDemoContentSeeded,
 } from './services/db';
 import { INITIAL_DEMO_TRACKS, INITIAL_SMART_PLAYLISTS } from './services/demoTracks';
 import {
@@ -87,25 +89,44 @@ export default function App() {
   const currentTrack: Track | null =
     currentQueueIndex >= 0 && currentQueueIndex < queue.length ? queue[currentQueueIndex] : null;
 
+  // The engine stores exactly one callback per event, so it must be wired up
+  // once on mount. These refs hold the freshest handler for each event, which
+  // keeps the engine from invoking a closure over stale queue/repeat state.
+  const handleTrackEndedRef = useRef<() => void>(() => {});
+  const handlePlayPauseRef = useRef<() => void>(() => {});
+  const handleNextTrackRef = useRef<() => void>(() => {});
+  const handlePrevTrackRef = useRef<() => void>(() => {});
+  const handleSeekRef = useRef<(to: number) => void>(() => {});
+
   // 1. Initialize Database & Demo Audio Offline
   useEffect(() => {
     let mounted = true;
 
     async function initDB() {
       try {
-        let loadedTracks = await getAllTracks();
-        if (loadedTracks.length === 0) {
-          // Preload audiophile demo masters
-          await saveTracks(INITIAL_DEMO_TRACKS);
-          loadedTracks = INITIAL_DEMO_TRACKS;
-        }
+        // Demo content is seeded exactly once. Without this flag an empty
+        // library looks identical to a first run, so deleting every track
+        // would resurrect the whole demo set on the next refresh.
+        const hasSeeded = hasSeededDemoContent();
 
+        let loadedTracks = await getAllTracks();
         let loadedPlaylists = await getAllPlaylists();
-        if (loadedPlaylists.length === 0) {
-          for (const pl of INITIAL_SMART_PLAYLISTS) {
-            await savePlaylist(pl);
+
+        if (!hasSeeded) {
+          if (loadedTracks.length === 0) {
+            // Preload audiophile demo masters
+            await saveTracks(INITIAL_DEMO_TRACKS);
+            loadedTracks = INITIAL_DEMO_TRACKS;
           }
-          loadedPlaylists = INITIAL_SMART_PLAYLISTS;
+
+          if (loadedPlaylists.length === 0) {
+            for (const pl of INITIAL_SMART_PLAYLISTS) {
+              await savePlaylist(pl);
+            }
+            loadedPlaylists = INITIAL_SMART_PLAYLISTS;
+          }
+
+          markDemoContentSeeded();
         }
 
         if (mounted) {
@@ -133,7 +154,9 @@ export default function App() {
     };
   }, []);
 
-  // 2. Setup Audio Engine Listeners
+  // 2. Setup Audio Engine Listeners + macOS MediaSession actions.
+  // Registered once; every handler dispatches through a ref so it always runs
+  // the current version without re-registering (the engine has no removal API).
   useEffect(() => {
     audioEngine.onTimeUpdate((time, dur) => {
       setCurrentTime(time);
@@ -145,26 +168,26 @@ export default function App() {
     });
 
     audioEngine.onEnded(() => {
-      handleTrackEnded();
+      handleTrackEndedRef.current();
     });
-  }, [currentQueueIndex, queue, repeatMode, shuffle, shuffleHistory]);
 
-  // 3. Register macOS MediaSession API Actions
-  useEffect(() => {
     audioEngine.registerMediaSessionHandlers({
-      play: () => handlePlayPause(),
-      pause: () => handlePlayPause(),
-      prev: () => handlePrevTrack(),
-      next: () => handleNextTrack(),
-      seek: (to) => handleSeek(to),
+      play: () => handlePlayPauseRef.current(),
+      pause: () => handlePlayPauseRef.current(),
+      prev: () => handlePrevTrackRef.current(),
+      next: () => handleNextTrackRef.current(),
+      seek: (to) => handleSeekRef.current(to),
     });
-  }, [currentQueueIndex, queue, isPlaying, shuffle, repeatMode]);
+  }, []);
 
   // Track playback transition
   const playTrackAtIndex = useCallback(
-    async (index: number) => {
-      if (index < 0 || index >= queue.length) return;
-      const trackToPlay = queue[index];
+    async (index: number, fromQueue?: Track[]) => {
+      // Callers that have just replaced the queue pass it in explicitly, since
+      // the state update has not been applied to this closure yet.
+      const activeQueue = fromQueue ?? queue;
+      if (index < 0 || index >= activeQueue.length) return;
+      const trackToPlay = activeQueue[index];
       setCurrentQueueIndex(index);
 
       // Check if we need to hydrate the Blob from IDB
@@ -265,16 +288,33 @@ export default function App() {
     if (isPlaying) {
       audioEngine.pause();
       setIsPlaying(false);
-    } else {
-      await audioEngine.play();
-      setIsPlaying(true);
+      return;
     }
-  }, [currentTrack, isPlaying, queue, playTrackAtIndex]);
 
-  const handleSeek = (seconds: number) => {
+    // On a fresh load the queue is populated but nothing has been handed to the
+    // engine yet, so the first press has to load the track rather than resume.
+    if (audioEngine.getLoadedTrackId() !== currentTrack.id) {
+      await playTrackAtIndex(currentQueueIndex >= 0 ? currentQueueIndex : 0);
+      return;
+    }
+
+    await audioEngine.play();
+    setIsPlaying(true);
+  }, [currentTrack, currentQueueIndex, isPlaying, queue, playTrackAtIndex]);
+
+  const handleSeek = useCallback((seconds: number) => {
     audioEngine.seek(seconds);
     setCurrentTime(seconds);
-  };
+  }, []);
+
+  // Keep the engine-facing refs pointed at the current handlers.
+  useEffect(() => {
+    handleTrackEndedRef.current = handleTrackEnded;
+    handlePlayPauseRef.current = handlePlayPause;
+    handleNextTrackRef.current = handleNextTrack;
+    handlePrevTrackRef.current = handlePrevTrack;
+    handleSeekRef.current = handleSeek;
+  }, [handleTrackEnded, handlePlayPause, handleNextTrack, handlePrevTrack, handleSeek]);
 
   const handleSetVolume = (vol: number) => {
     audioEngine.setVolume(vol);
@@ -319,6 +359,74 @@ export default function App() {
       prev.map((t) => (t.id === trackId ? { ...t, isFavorite: nextFav } : t))
     );
   };
+
+  /**
+   * Permanently removes a track: its metadata row, its audio blob, and any
+   * references held by manual playlists. Smart playlists re-evaluate from the
+   * library, so they need no cleanup.
+   */
+  const handleRemoveTrack = useCallback(
+    async (trackId: string) => {
+      const target = tracks.find((t) => t.id === trackId);
+
+      await deleteTrack(trackId);
+
+      // Release the object URL for cover art extracted from an ID3 tag.
+      if (target?.coverArtUrl?.startsWith('blob:')) {
+        URL.revokeObjectURL(target.coverArtUrl);
+      }
+
+      setTracks((prev) => prev.filter((t) => t.id !== trackId));
+
+      const removeIndex = queue.findIndex((t) => t.id === trackId);
+      if (removeIndex !== -1) {
+        const nextQueue = queue.filter((t) => t.id !== trackId);
+        setQueue(nextQueue);
+
+        if (removeIndex === currentQueueIndex) {
+          // The playing track just disappeared: stop rather than surprising the
+          // listener with whatever happens to fall into its slot.
+          audioEngine.pause();
+          setIsPlaying(false);
+          setCurrentTime(0);
+
+          const nextIndex =
+            nextQueue.length === 0 ? -1 : Math.min(currentQueueIndex, nextQueue.length - 1);
+          setCurrentQueueIndex(nextIndex);
+          // Cue the transport to whatever track took the slot, so the progress
+          // bar does not keep showing the removed track's length.
+          setDuration(nextIndex === -1 ? 0 : nextQueue[nextIndex].duration);
+        } else if (removeIndex < currentQueueIndex) {
+          setCurrentQueueIndex((prev) => prev - 1);
+        }
+
+        setShuffleHistory([]);
+      }
+
+      // Drop the id from manual playlists so nothing persists a dangling ref.
+      const affected = playlists.filter(
+        (pl) => !pl.isSmart && pl.trackIds.includes(trackId)
+      );
+      if (affected.length > 0) {
+        const updated = affected.map((pl) => ({
+          ...pl,
+          trackIds: pl.trackIds.filter((id) => id !== trackId),
+          updatedAt: Date.now(),
+        }));
+        await Promise.all(updated.map((pl) => savePlaylist(pl)));
+        setPlaylists((prev) =>
+          prev.map((pl) => updated.find((u) => u.id === pl.id) ?? pl)
+        );
+      }
+
+      // Close the inspector if it was showing the track we just removed.
+      setInspectedTrack((prev) => (prev?.id === trackId ? null : prev));
+      if (inspectedTrack?.id === trackId) {
+        setShowInspectorModal(false);
+      }
+    },
+    [tracks, queue, currentQueueIndex, playlists, inspectedTrack]
+  );
 
   const handleUpdateLyrics = async (
     trackId: string,
@@ -424,7 +532,10 @@ export default function App() {
         searchInputRef.current?.focus();
       }
       // F or ⌘ + Enter : Fullscreen
-      else if (e.key === 'f' || e.key === 'F' || (isCmdOrCtrl && e.key === 'Enter')) {
+      else if (
+        (!isCmdOrCtrl && !isAlt && (e.key === 'f' || e.key === 'F')) ||
+        (isCmdOrCtrl && e.key === 'Enter')
+      ) {
         e.preventDefault();
         toggleFullscreen();
       }
@@ -536,10 +647,12 @@ export default function App() {
     }
 
     if (newTracks.length > 0) {
+      const nextQueue = [...newTracks, ...queue];
       setTracks((prev) => [...newTracks, ...prev]);
-      setQueue((prev) => [...newTracks, ...prev]);
-      // Play the newly added track
-      playTrackAtIndex(0);
+      setQueue(nextQueue);
+      // Play the newly added track against the queue we just built, not the
+      // stale one captured by playTrackAtIndex.
+      playTrackAtIndex(0, nextQueue);
     }
   };
 
@@ -598,11 +711,9 @@ export default function App() {
     setShuffleHistory([]);
 
     const startIndex = shuffleMode ? Math.floor(Math.random() * targetTracks.length) : 0;
-    setCurrentQueueIndex(startIndex);
-
-    const firstTrack = targetTracks[startIndex];
-    audioEngine.loadTrack(firstTrack, true);
-    setIsPlaying(true);
+    // Goes through playTrackAtIndex so the blob is hydrated from IndexedDB and
+    // the play count is recorded, same as any other playback entry point.
+    playTrackAtIndex(startIndex, targetTracks);
   };
 
   const handlePlaySingleTrack = (track: Track) => {
@@ -611,11 +722,10 @@ export default function App() {
     if (indexInQueue !== -1) {
       playTrackAtIndex(indexInQueue);
     } else {
-      // Add and play
-      setQueue((prev) => [track, ...prev]);
-      setCurrentQueueIndex(0);
-      audioEngine.loadTrack(track, true);
-      setIsPlaying(true);
+      // Add to the front and play it
+      const nextQueue = [track, ...queue];
+      setQueue(nextQueue);
+      playTrackAtIndex(0, nextQueue);
     }
   };
 
@@ -726,6 +836,7 @@ export default function App() {
               onPlayTrack={handlePlaySingleTrack}
               onPlayAll={handlePlayAll}
               onToggleFavorite={handleToggleFavorite}
+              onRemoveTrack={handleRemoveTrack}
               onInspectTrack={(t) => {
                 setInspectedTrack(t);
                 setShowInspectorModal(true);

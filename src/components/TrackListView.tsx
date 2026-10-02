@@ -13,6 +13,7 @@ import {
   FolderDown,
   Info,
   Sliders,
+  Trash2,
 } from 'lucide-react';
 import { AudioFormat, Track } from '../types/music';
 
@@ -25,6 +26,7 @@ interface TrackListViewProps {
   onPlayTrack: (track: Track) => void;
   onPlayAll: (tracks: Track[], shuffle: boolean) => void;
   onToggleFavorite: (trackId: string) => void;
+  onRemoveTrack: (trackId: string) => void;
   onInspectTrack: (track: Track) => void;
   onFilesDropped: (files: FileList) => void;
   onTriggerFileInput: () => void;
@@ -44,6 +46,7 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
   onPlayTrack,
   onPlayAll,
   onToggleFavorite,
+  onRemoveTrack,
   onInspectTrack,
   onFilesDropped,
   onTriggerFileInput,
@@ -324,7 +327,7 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
                   )}
                 </div>
 
-                {/* Duration & Favorite Actions */}
+                {/* Duration, Favorite & Remove Actions */}
                 <div className="col-span-2 flex items-center justify-end gap-3 pr-2">
                   <button
                     onClick={(e) => {
@@ -332,6 +335,8 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
                       onToggleFavorite(track.id);
                     }}
                     className="p-1 text-slate-400 hover:text-rose-400 transition-colors"
+                    title={track.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                    aria-label={track.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
                   >
                     <Heart
                       className={`w-3.5 h-3.5 ${
@@ -343,6 +348,19 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
                   <span className="text-xs font-mono-numbers text-slate-400 w-10 text-right">
                     {formatDuration(track.duration)}
                   </span>
+
+                  {/* Remove from library */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemoveTrack(track.id);
+                    }}
+                    className="p-1 rounded text-slate-500 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
+                    title="Remove from library"
+                    aria-label={`Remove ${track.title} from library`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
             );
