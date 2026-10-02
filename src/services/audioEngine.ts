@@ -43,11 +43,6 @@ export class AudioEngine {
   private masterGainNode: GainNode | null = null;
   private analyserNode: AnalyserNode | null = null;
 
-  // Synthesizer node for procedural audiophile tracks when no audio blob exists
-  private synthGainNode: GainNode | null = null;
-  private synthIntervalId: number | null = null;
-  private synthStartTime: number = 0;
-  private isSynthPlaying: boolean = false;
   private currentTrack: Track | null = null;
 
   private onTimeUpdateCallback: ((time: number, duration: number) => void) | null = null;
@@ -73,7 +68,7 @@ export class AudioEngine {
     this.audioElement.preload = 'auto';
 
     this.audioElement.addEventListener('timeupdate', () => {
-      if (this.onTimeUpdateCallback && !this.isSynthPlaying) {
+      if (this.onTimeUpdateCallback) {
         this.onTimeUpdateCallback(this.audioElement.currentTime, this.audioElement.duration || 0);
       }
     });
@@ -230,19 +225,12 @@ export class AudioEngine {
     spatialMerger.connect(this.masterGainNode);
     this.masterGainNode.connect(this.analyserNode);
     this.analyserNode.connect(ctx.destination);
-
-    // Synth Gain node connects to Preamp as well so procedural audio travels through EQ and Analyser
-    this.synthGainNode = ctx.createGain();
-    this.synthGainNode.gain.setValueAtTime(0.4, ctx.currentTime);
-    this.synthGainNode.connect(this.preampGainNode);
   }
 
   public async loadTrack(track: Track, autoPlay: boolean = true): Promise<void> {
     await this.ensureContext();
     this.currentTrack = track;
-    this.stopSynth();
 
-    // Revoke previous blob URL if needed
     if (this.currentBlobUrl) {
       URL.revokeObjectURL(this.currentBlobUrl);
       this.currentBlobUrl = null;
@@ -253,132 +241,21 @@ export class AudioEngine {
     if (track.audioBlob) {
       this.currentBlobUrl = URL.createObjectURL(track.audioBlob);
       this.audioElement.src = this.currentBlobUrl;
-      this.audioElement.load();
-      if (autoPlay) {
-        try {
-          await this.audioElement.play();
-        } catch {
-          // Playback interaction policy
-        }
-      }
     } else if (track.audioUrl) {
       this.audioElement.src = track.audioUrl;
-      this.audioElement.load();
-      if (autoPlay) {
-        try {
-          await this.audioElement.play();
-        } catch {
-          // Playback error
-        }
-      }
     } else {
-      // Procedural audiophile master synthesis
       this.audioElement.pause();
-      this.audioElement.src = '';
-      if (autoPlay) {
-        this.startSynth(track);
-      }
+      this.audioElement.removeAttribute('src');
+      return;
     }
-  }
 
-  /**
-   * Generates rich audiophile synthesized acoustic/electronic pieces
-   * in real-time when playing demo tracks offline.
-   */
-  private startSynth(track: Track) {
-    if (!this.ctx || !this.synthGainNode) return;
-    this.isSynthPlaying = true;
-    this.synthStartTime = this.ctx.currentTime;
-    this.updateMediaSessionPlaybackState('playing');
-    this.onStateChangeCallback?.(true);
-
-    const bpm = track.bpm || 100;
-    const intervalMs = (60 / bpm) * 500; // 8th notes
-
-    // Chord progressions per track style
-    const isMajor = track.key?.includes('Major');
-    const rootFreq = track.id.includes('solaris') ? 138.59 : track.id.includes('shibuya') ? 155.56 : track.id.includes('forest') ? 110.0 : 146.83; // D, Eb, A, D
-
-    const scaleIntervals = isMajor ? [0, 4, 7, 11, 12, 16, 19] : [0, 3, 7, 10, 12, 15, 19];
-    let step = 0;
-
-    const playStep = () => {
-      if (!this.isSynthPlaying || !this.ctx || !this.synthGainNode) return;
-
-      const elapsed = this.ctx.currentTime - this.synthStartTime;
-      const duration = track.duration || 120;
-
-      if (this.onTimeUpdateCallback) {
-        this.onTimeUpdateCallback(elapsed % duration, duration);
+    this.audioElement.load();
+    if (autoPlay) {
+      try {
+        await this.audioElement.play();
+      } catch {
+        // Autoplay policy or an interrupting load; state events report it.
       }
-
-      if (elapsed >= duration) {
-        this.stopSynth();
-        if (this.onEndedCallback) {
-          this.onEndedCallback();
-        }
-        return;
-      }
-
-      // Generate lush chord note
-      const osc = this.ctx.createOscillator();
-      const noteGain = this.ctx.createGain();
-      const filter = this.ctx.createBiquadFilter();
-
-      const noteOffset = scaleIntervals[step % scaleIntervals.length];
-      const octaveMult = (step % 4 === 0) ? 0.5 : (step % 3 === 0) ? 2 : 1;
-      const freq = rootFreq * Math.pow(2, noteOffset / 12) * octaveMult;
-
-      osc.type = track.id.includes('solaris') ? 'triangle' : track.id.includes('hyperdrive') ? 'sawtooth' : 'sine';
-      osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
-
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(track.id.includes('shibuya') ? 1800 : 3800, this.ctx.currentTime);
-
-      const now = this.ctx.currentTime;
-      const attack = 0.08;
-      const release = (intervalMs / 1000) * 1.5;
-
-      noteGain.gain.setValueAtTime(0.0001, now);
-      noteGain.gain.exponentialRampToValueAtTime(0.25, now + attack);
-      noteGain.gain.exponentialRampToValueAtTime(0.0001, now + release);
-
-      osc.connect(filter);
-      filter.connect(noteGain);
-      noteGain.connect(this.synthGainNode);
-
-      osc.start(now);
-      osc.stop(now + release);
-
-      // Sub-bass kick on 1 and 3 beats
-      if (step % 2 === 0) {
-        const bassOsc = this.ctx.createOscillator();
-        const bassGain = this.ctx.createGain();
-        bassOsc.type = 'sine';
-        bassOsc.frequency.setValueAtTime(rootFreq * 0.5, now);
-        bassOsc.frequency.exponentialRampToValueAtTime(35, now + 0.3);
-
-        bassGain.gain.setValueAtTime(0.35, now);
-        bassGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
-
-        bassOsc.connect(bassGain);
-        bassGain.connect(this.synthGainNode);
-        bassOsc.start(now);
-        bassOsc.stop(now + 0.35);
-      }
-
-      step++;
-    };
-
-    playStep();
-    this.synthIntervalId = window.setInterval(playStep, intervalMs);
-  }
-
-  private stopSynth() {
-    this.isSynthPlaying = false;
-    if (this.synthIntervalId !== null) {
-      clearInterval(this.synthIntervalId);
-      this.synthIntervalId = null;
     }
   }
 
@@ -396,65 +273,37 @@ export class AudioEngine {
     if (!this.currentTrack) return;
 
     await this.ensureContext();
-    if (!this.currentTrack.audioBlob && !this.currentTrack.audioUrl) {
-      if (!this.isSynthPlaying) {
-        this.startSynth(this.currentTrack);
-      }
-    } else {
-      try {
-        await this.audioElement.play();
-      } catch {
-        // AbortError when a pause() or a new load() interrupts this play();
-        // the 'pause' listener already reports the resulting state.
-        return;
-      }
+    try {
+      await this.audioElement.play();
+    } catch {
+      // AbortError when a pause() or a new load() interrupts this play();
+      // the 'pause' listener already reports the resulting state.
+      return;
     }
     this.updateMediaSessionPlaybackState('playing');
     this.onStateChangeCallback?.(true);
   }
 
   public pause(): void {
-    if (this.isSynthPlaying) {
-      this.stopSynth();
-      this.onStateChangeCallback?.(false);
-      this.updateMediaSessionPlaybackState('paused');
-    } else {
-      this.audioElement.pause();
-    }
+    this.audioElement.pause();
   }
 
   public isPlaying(): boolean {
-    if (this.isSynthPlaying) return true;
     return !this.audioElement.paused && !this.audioElement.ended;
   }
 
   public seek(seconds: number): void {
-    if (this.isSynthPlaying) {
-      if (this.ctx) {
-        this.synthStartTime = this.ctx.currentTime - seconds;
-      }
-    } else {
-      this.audioElement.currentTime = Math.max(0, Math.min(seconds, this.audioElement.duration || seconds));
-    }
+    this.audioElement.currentTime = Math.max(0, Math.min(seconds, this.audioElement.duration || seconds));
     if (this.onTimeUpdateCallback) {
       this.onTimeUpdateCallback(seconds, this.getDuration());
     }
   }
 
   public getCurrentTime(): number {
-    if (this.isSynthPlaying) {
-      if (!this.ctx) return 0;
-      const elapsed = this.ctx.currentTime - this.synthStartTime;
-      const dur = this.currentTrack?.duration || 120;
-      return elapsed % dur;
-    }
     return this.audioElement.currentTime || 0;
   }
 
   public getDuration(): number {
-    if (this.isSynthPlaying) {
-      return this.currentTrack?.duration || 120;
-    }
     return this.audioElement.duration || this.currentTrack?.duration || 0;
   }
 
@@ -531,6 +380,19 @@ export class AudioEngine {
     this.spatialDelay.delayTime.setTargetAtTime(sideDelay, now, 0.015);
   }
 
+  /**
+   * Restores saved settings. Safe before the audio graph exists: the graph
+   * reads these values when it is built on the first play.
+   */
+  public applySettings(saved: Partial<AudioEngineSettings>): void {
+    this.settings = { ...this.settings, ...saved };
+    this.setVolume(this.settings.volume);
+    this.setMuted(this.settings.isMuted);
+    this.setPreampGain(this.settings.preampGain);
+    this.setEQGains(this.settings.eqGains);
+    this.applySpatialStage();
+  }
+
   public getSettings(): AudioEngineSettings {
     return { ...this.settings };
   }
@@ -558,9 +420,9 @@ export class AudioEngine {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: track.title,
         artist: track.artist,
-        album: `${track.album} • [${track.format} ${track.bitDepth}b/${Math.round(track.sampleRate / 1000)}kHz]`,
+        album: track.album,
         artwork: track.coverArtUrl
-          ? [{ src: track.coverArtUrl, sizes: '512x512', type: 'image/svg+xml' }]
+          ? [{ src: track.coverArtUrl, sizes: '512x512', type: track.coverArtBlob?.type || 'image/jpeg' }]
           : [],
       });
     }

@@ -1,293 +1,170 @@
-import { Dialog } from "./Dialog";
 import React, { useState } from "react";
-import {
-  X,
-  RotateCcw,
-  Check,
-  Sparkles,
-  Sliders,
-  Headphones,
-} from "lucide-react";
-import {
-  audioEngine,
-  EQ_FREQUENCIES,
-  EQ_PRESETS,
-} from "../services/audioEngine";
+import { RotateCcw } from "lucide-react";
+import { audioEngine, EQ_FREQUENCIES, EQ_PRESETS } from "../services/audioEngine";
 import { AudioEngineSettings } from "../types/music";
+import { Modal, Switch, cx } from "./ui";
 
 interface EqualizerModalProps {
-  isOpen: boolean;
   onClose: () => void;
   settings: AudioEngineSettings;
   onUpdateSettings: (newSettings: Partial<AudioEngineSettings>) => void;
 }
 
-export const EqualizerModal: React.FC<EqualizerModalProps> = ({
-  isOpen,
-  onClose,
-  settings,
-  onUpdateSettings,
-}) => {
-  const [activePreset, setActivePreset] = useState<string>("custom");
-  if (!isOpen) return null;
+export function EqualizerModal({ onClose, settings, onUpdateSettings }: EqualizerModalProps) {
+  const matchPreset = () => EQ_PRESETS.find((p) => p.gains.every((g, i) => g === settings.eqGains[i]))?.id ?? "custom";
+  const [activePreset, setActivePreset] = useState<string>(matchPreset);
 
-  const handleBandChange = (index: number, val: number) => {
-    const updated = [...settings.eqGains];
-    updated[index] = val;
-    audioEngine.setEQGains(updated);
-    onUpdateSettings({ eqGains: updated });
+  const setBand = (index: number, value: number) => {
+    const gains = [...settings.eqGains];
+    gains[index] = value;
+    audioEngine.setEQGains(gains);
+    onUpdateSettings({ eqGains: gains });
     setActivePreset("custom");
   };
 
-  const handleResetBands = () => {
-    const flat = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const applyPreset = (id: string) => {
+    const preset = EQ_PRESETS.find((p) => p.id === id);
+    if (!preset) return;
+    audioEngine.setEQGains(preset.gains);
+    onUpdateSettings({ eqGains: preset.gains });
+    setActivePreset(id);
+  };
+
+  const reset = () => {
+    const flat = new Array(10).fill(0);
     audioEngine.setEQGains(flat);
     audioEngine.setPreampGain(0);
     onUpdateSettings({ eqGains: flat, preampGain: 0 });
     setActivePreset("flat");
   };
 
-  const handleApplyPreset = (presetId: string) => {
-    const p = EQ_PRESETS.find((x) => x.id === presetId);
-    if (!p) return;
-    audioEngine.setEQGains(p.gains);
-    onUpdateSettings({ eqGains: p.gains });
-    setActivePreset(p.id);
-  };
-
-  const handlePreampChange = (dB: number) => {
-    audioEngine.setPreampGain(dB);
-    onUpdateSettings({ preampGain: dB });
-  };
-
-  const handleToggleEq = (enabled: boolean) => {
-    audioEngine.setEQEnabled(enabled);
-    onUpdateSettings({ isEqEnabled: enabled });
-  };
-
-  const handleToggleSpatial = (enabled: boolean) => {
-    audioEngine.setSpatialAudioEnabled(enabled);
-    onUpdateSettings({ isSpatialAudioEnabled: enabled });
-  };
-
-  const handleStereoWidthChange = (width: number) => {
-    audioEngine.setStereoWidth(width);
-    onUpdateSettings({ spatialStereoWidth: width });
-  };
+  const fmt = (db: number) => (db > 0 ? `+${db}` : `${db}`);
 
   return (
-    <Dialog onClose={onClose} label="Sound studio" className="standard-dialog">
-      <div className="w-full max-w-2xl bg-[#fffdf9] border border-stone-900/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="h-14 px-6 border-b border-stone-900/[0.08] flex items-center justify-between bg-stone-900/[0.02]">
-          <div className="flex items-center gap-2.5">
-            <Sliders className="w-5 h-5 text-amber-700" />
-            <div>
-              <h2 className="text-sm font-bold text-stone-800 tracking-wide">
-                Your sound, your way.
-              </h2>
-              <p className="text-[10px] text-stone-500 font-mono">
-                Equalizer & listening preferences
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* EQ Power Switch */}
-            <label className="flex items-center gap-2 text-xs font-semibold text-stone-600 cursor-pointer">
-              <span>EQ on</span>
-              <input
-                type="checkbox"
-                checked={settings.isEqEnabled}
-                onChange={(e) => handleToggleEq(e.target.checked)}
-                className="w-4 h-4 rounded bg-stone-200 accent-sky-500 cursor-pointer"
-              />
-            </label>
-
-            <button
-              onClick={handleResetBands}
-              className="p-1.5 rounded-lg text-stone-500 hover:text-stone-800 hover:bg-stone-900/[0.06] transition-colors"
-              title="Reset all bands to 0 dB"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-
-            <button
-              aria-label="Close dialog"
-              onClick={onClose}
-              className="p-1.5 rounded-lg text-stone-500 hover:text-stone-800 hover:bg-stone-900/[0.06] transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+    <Modal
+      title="Equalizer"
+      subtitle="Shape the sound to your headphones or speakers."
+      onClose={onClose}
+      width="max-w-2xl"
+      actions={
+        <div className="flex items-center gap-2 pt-1">
+          <span className="text-sm text-muted">{settings.isEqEnabled ? "On" : "Off"}</span>
+          <Switch
+            label="Equalizer on"
+            checked={settings.isEqEnabled}
+            onChange={(on) => {
+              audioEngine.setEQEnabled(on);
+              onUpdateSettings({ isEqEnabled: on });
+            }}
+          />
         </div>
-
-        {/* Content */}
-        <div className="p-6 space-y-6">
-          {/* Preset Selector */}
-          <div>
-            <div className="text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-2">
-              Acoustic Tuning Presets
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {EQ_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  onClick={() => handleApplyPreset(preset.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium text-left truncate transition-colors cursor-pointer border ${
-                    activePreset === preset.id
-                      ? "bg-amber-500/20 text-amber-700 border-amber-500/40 shadow-sm"
-                      : "bg-stone-900/[0.03] text-stone-600 border-stone-900/[0.06] hover:bg-stone-900/[0.06]"
-                  }`}
-                >
-                  {preset.name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 10-Band Sliders */}
-          <div className="bg-stone-900/[0.03] border border-stone-900/[0.06] rounded-xl p-5">
-            <div className="flex items-center justify-between text-[10px] font-mono text-stone-500 mb-4 px-2">
-              <span>+12 dB</span>
-              <span className="text-stone-500">0 dB (Reference)</span>
-              <span>-12 dB</span>
-            </div>
-
-            <div className="eq-bands">
-              {EQ_FREQUENCIES.map((freqDef, i) => {
-                const gain = settings.eqGains[i] || 0;
-                return (
-                  <div
-                    key={freqDef.freq}
-                    className="flex flex-col items-center h-full justify-between"
-                  >
-                    <span className="text-[10px] font-mono-numbers text-sky-400 font-semibold">
-                      {gain > 0 ? `+${gain}` : gain}
-                    </span>
-
-                    {/* Vertical Range Slider */}
-                    <div className="relative flex-1 flex items-center justify-center w-full py-2">
-                      <input
-                        type="range"
-                        min={-12}
-                        max={12}
-                        step={1}
-                        value={gain}
-                        disabled={!settings.isEqEnabled}
-                        onChange={(e) =>
-                          handleBandChange(i, parseInt(e.target.value, 10))
-                        }
-                        aria-label={`${freqDef.label} gain`}
-                        className="cursor-pointer disabled:opacity-40"
-                      />
-                    </div>
-
-                    <div className="text-center mt-1">
-                      <span className="text-[10px] font-mono text-stone-500 font-medium">
-                        {freqDef.label}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Preamp & Spatial Audio controls */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Preamp Gain */}
-            <div className="bg-stone-900/[0.02] border border-stone-900/[0.06] rounded-xl p-4 flex flex-col justify-between">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-stone-600">
-                  Preamp Gain
-                </span>
-                <span className="text-xs font-mono text-amber-700 font-bold">
-                  {settings.preampGain > 0
-                    ? `+${settings.preampGain} dB`
-                    : `${settings.preampGain} dB`}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={-12}
-                max={12}
-                step={0.5}
-                value={settings.preampGain}
-                onChange={(e) => handlePreampChange(parseFloat(e.target.value))}
-                className="w-full h-1.5 bg-stone-900/10 rounded-full cursor-pointer"
-              />
-              <span className="text-[10px] text-stone-500 mt-2">
-                Adjusts input stage gain before digital filtering.
-              </span>
-            </div>
-
-            {/* Spatial Audio / Haas Staging */}
-            <div className="bg-stone-900/[0.02] border border-stone-900/[0.06] rounded-xl p-4 flex flex-col justify-between">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-1.5">
-                  <Headphones className="w-3.5 h-3.5 text-indigo-600" />
-                  <span className="text-xs font-semibold text-stone-600">
-                    Binaural 3D Stage
-                  </span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={settings.isSpatialAudioEnabled}
-                  onChange={(e) => handleToggleSpatial(e.target.checked)}
-                  className="w-4 h-4 rounded bg-stone-200 accent-indigo-500 cursor-pointer"
-                />
-              </div>
-              <p className="text-[10px] text-stone-500 leading-relaxed">
-                Mid/side matrix with a 15ms Haas delay on the side signal to
-                expand the stereo soundstage for headphones.
-              </p>
-
-              <div className="mt-3">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[11px] font-medium text-stone-500">
-                    Stereo Width
-                  </span>
-                  <span className="text-[11px] font-mono text-indigo-700 font-bold">
-                    {settings.spatialStereoWidth.toFixed(2)}×
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={2}
-                  step={0.05}
-                  value={settings.spatialStereoWidth}
-                  disabled={!settings.isSpatialAudioEnabled}
-                  onChange={(e) =>
-                    handleStereoWidthChange(parseFloat(e.target.value))
-                  }
-                  className="w-full h-1.5 bg-stone-900/10 rounded-full cursor-pointer disabled:opacity-40"
-                />
-                <div className="flex justify-between text-[9px] font-mono text-stone-400 mt-1">
-                  <span>MONO</span>
-                  <span>1.0 NEUTRAL</span>
-                  <span>WIDE</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-3 bg-stone-900/[0.02] border-t border-stone-900/[0.06] flex items-center justify-between">
-          <span className="text-[11px] text-stone-500 font-mono">
-            32-bit floating point processing pipeline
-          </span>
+      }
+    >
+      <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+        {EQ_PRESETS.map((preset) => (
           <button
-            aria-label="Close dialog"
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-sky-500 text-white text-xs font-bold hover:bg-sky-400 transition-colors cursor-pointer"
+            key={preset.id}
+            onClick={() => applyPreset(preset.id)}
+            disabled={!settings.isEqEnabled}
+            className={cx(
+              "h-8 shrink-0 rounded-full px-3.5 text-[13px] font-medium transition disabled:opacity-40",
+              activePreset === preset.id ? "bg-fg text-bg" : "bg-white/[0.07] text-muted hover:bg-white/[0.12] hover:text-fg",
+            )}
           >
-            Done
+            {preset.name}
           </button>
+        ))}
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-line bg-black/25 px-2 pt-4 pb-3 sm:px-4">
+        <div className="grid grid-cols-10">
+          {EQ_FREQUENCIES.map((band, i) => {
+            const gain = settings.eqGains[i] || 0;
+            return (
+              <div key={band.freq} className="flex min-w-0 flex-col items-center">
+                <span className={cx("text-[11px] tabular-nums", gain === 0 ? "text-faint" : "font-semibold text-accent")}>{fmt(gain)}</span>
+                <div className="relative my-2 flex h-40 justify-center">
+                  <span className="pointer-events-none absolute top-1/2 h-px w-4 bg-white/20" />
+                  <input
+                    type="range"
+                    className="fader"
+                    min={-12}
+                    max={12}
+                    step={1}
+                    value={gain}
+                    disabled={!settings.isEqEnabled}
+                    onChange={(e) => setBand(i, parseInt(e.target.value, 10))}
+                    aria-label={`${band.label} Hz`}
+                  />
+                </div>
+                <span className="text-[10px] font-medium text-muted sm:text-[11px]">{band.label}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
-    </Dialog>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl border border-line bg-white/[0.03] p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">Preamp</span>
+            <span className="text-sm tabular-nums text-muted">{fmt(settings.preampGain)} dB</span>
+          </div>
+          <input
+            type="range"
+            className="range range-thumb mt-3"
+            min={-12}
+            max={12}
+            step={0.5}
+            value={settings.preampGain}
+            onChange={(e) => {
+              const db = parseFloat(e.target.value);
+              audioEngine.setPreampGain(db);
+              onUpdateSettings({ preampGain: db });
+            }}
+            aria-label="Preamp gain"
+            style={{ "--progress": `${((settings.preampGain + 12) / 24) * 100}%` } as React.CSSProperties}
+          />
+          <p className="mt-2 text-xs text-faint">Lower it if boosted bands start to distort.</p>
+        </div>
+
+        <div className="rounded-2xl border border-line bg-white/[0.03] p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">Wider stereo</span>
+            <Switch
+              label="Wider stereo"
+              checked={settings.isSpatialAudioEnabled}
+              onChange={(on) => {
+                audioEngine.setSpatialAudioEnabled(on);
+                onUpdateSettings({ isSpatialAudioEnabled: on });
+              }}
+            />
+          </div>
+          <input
+            type="range"
+            className="range range-thumb mt-3"
+            min={0}
+            max={2}
+            step={0.05}
+            value={settings.spatialStereoWidth}
+            disabled={!settings.isSpatialAudioEnabled}
+            onChange={(e) => {
+              const width = parseFloat(e.target.value);
+              audioEngine.setStereoWidth(width);
+              onUpdateSettings({ spatialStereoWidth: width });
+            }}
+            aria-label="Stereo width"
+            style={{ "--progress": `${(settings.spatialStereoWidth / 2) * 100}%` } as React.CSSProperties}
+          />
+          <p className="mt-2 text-xs text-faint">Opens up the stereo image on headphones. {settings.spatialStereoWidth.toFixed(2)}×</p>
+        </div>
+      </div>
+
+      <div className="mt-5 flex justify-end">
+        <button onClick={reset} className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-fg">
+          <RotateCcw size={14} /> Reset to flat
+        </button>
+      </div>
+    </Modal>
   );
-};
+}
