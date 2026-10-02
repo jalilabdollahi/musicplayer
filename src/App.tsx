@@ -49,6 +49,7 @@ import { TrackInfoModal } from "./components/TrackInfoModal";
 import { SmartPlaylistModal } from "./components/SmartPlaylistModal";
 import { ShortcutsModal } from "./components/ShortcutsModal";
 import { AddMusicModal } from "./components/AddMusicModal";
+import { InstallButton, InstallHelpModal, useInstallPrompt } from "./components/InstallPrompt";
 import {
   Album,
   AlbumGrid,
@@ -189,6 +190,8 @@ export default function App() {
   const [showAddMusic, setShowAddMusic] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [showInstallHelp, setShowInstallHelp] = useState(false);
+  const { mode: installMode, promptInstall } = useInstallPrompt();
 
   const searchRef = useRef<HTMLInputElement | null>(null);
   const filesInputRef = useRef<HTMLInputElement | null>(null);
@@ -1106,6 +1109,10 @@ export default function App() {
 
   const disconnected = folders.filter((f) => folderAccess[f.id] === false);
 
+  const install = async () => {
+    if (!(await promptInstall())) setShowInstallHelp(true);
+  };
+
   return (
     <div
       className="flex h-dvh flex-col overflow-hidden bg-bg text-fg"
@@ -1128,6 +1135,7 @@ export default function App() {
           onAddMusic={() => setShowAddMusic(true)}
           onCreatePlaylist={() => setShowSmartPlaylist(true)}
           needsReconnect={needsReconnect}
+          install={installMode && <InstallButton mode={installMode} onClick={install} variant="sidebar" />}
         />
 
         <main ref={mainRef} className="relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
@@ -1145,6 +1153,7 @@ export default function App() {
                 <AudioLines size={16} strokeWidth={2.4} />
               </span>
               <span className="flex-1 font-bold tracking-tight">HighFi</span>
+              {installMode && <InstallButton mode={installMode} onClick={install} variant="appbar" />}
               <IconButton label="Music sources" onClick={() => navigate({ kind: "sources" })}>
                 <FolderOpen size={19} />
                 {needsReconnect && <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-amber-400" />}
@@ -1346,6 +1355,9 @@ export default function App() {
             navigate({ kind: "playlist", id: pl.id });
           }}
         />
+      )}
+      {showInstallHelp && installMode && installMode !== "prompt" && (
+        <InstallHelpModal mode={installMode} onClose={() => setShowInstallHelp(false)} />
       )}
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
       {showAddMusic && (

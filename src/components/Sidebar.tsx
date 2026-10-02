@@ -23,6 +23,8 @@ interface SidebarProps {
   onAddMusic: () => void;
   onCreatePlaylist: () => void;
   needsReconnect: boolean;
+  /** Install offer, shown only when the app can be installed. */
+  install?: React.ReactNode;
 }
 
 export function Sidebar({
@@ -33,6 +35,7 @@ export function Sidebar({
   onAddMusic,
   onCreatePlaylist,
   needsReconnect,
+  install,
 }: SidebarProps) {
   const links: { route: Route; label: string; icon: React.ReactNode; count?: number }[] = [
     { route: { kind: "songs" }, label: "Songs", icon: <Music2 size={18} />, count: counts.songs },
@@ -114,6 +117,7 @@ export function Sidebar({
       </div>
 
       <div className="border-t border-line p-3">
+        {install}
         <NavItem
           active={route.kind === "sources"}
           onClick={() => onNavigate({ kind: "sources" })}
