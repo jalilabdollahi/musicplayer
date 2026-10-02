@@ -1,4 +1,4 @@
-import { AudioEngineSettings, EQBand, EQPreset, Track } from '../types/music';
+import { AudioEngineSettings, EQPreset, Track } from '../types/music';
 
 export const EQ_FREQUENCIES: { freq: number; label: string; type: BiquadFilterType }[] = [
   { freq: 32, label: '32Hz', type: 'lowshelf' },
@@ -30,17 +30,19 @@ export class AudioEngine {
   private sourceNode: MediaElementAudioSourceNode | null = null;
   private preampGainNode: GainNode | null = null;
   private eqFilters: BiquadFilterNode[] = [];
+  private spatialInput: GainNode | null = null;
   private spatialSplitter: ChannelSplitterNode | null = null;
   private spatialMerger: ChannelMergerNode | null = null;
   private spatialDelay: DelayNode | null = null;
+  private spatialMidGain: GainNode | null = null;
+  private spatialSideLGain: GainNode | null = null;
+  private spatialSideRGain: GainNode | null = null;
+  private spatialSideSum: GainNode | null = null;
+  private spatialWidthPos: GainNode | null = null;
+  private spatialWidthNeg: GainNode | null = null;
   private masterGainNode: GainNode | null = null;
   private analyserNode: AnalyserNode | null = null;
 
-  // Synthesizer node for procedural audiophile tracks when no audio blob exists
-  private synthGainNode: GainNode | null = null;
-  private synthIntervalId: number | null = null;
-  private synthStartTime: number = 0;
-  private isSynthPlaying: boolean = false;
   private currentTrack: Track | null = null;
 
   private onTimeUpdateCallback: ((time: number, duration: number) => void) | null = null;
@@ -54,8 +56,9 @@ export class AudioEngine {
     eqGains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     isEqEnabled: true,
     isSpatialAudioEnabled: false,
-    spatialStereoWidth: 1.0,
+    spatialStereoWidth: 1.5,
     visualizerMode: 'spectrum',
+    playbackRate: 1,
   };
 
   private currentBlobUrl: string | null = null;
@@ -66,7 +69,7 @@ export class AudioEngine {
     this.audioElement.preload = 'auto';
 
     this.audioElement.addEventListener('timeupdate', () => {
-      if (this.onTimeUpdateCallback && !this.isSynthPlaying) {
+      if (this.onTimeUpdateCallback) {
         this.onTimeUpdateCallback(this.audioElement.currentTime, this.audioElement.duration || 0);
       }
     });
@@ -125,9 +128,56 @@ export class AudioEngine {
       return filter;
     });
 
-    // 4. Spatial / Stereo expansion nodes
-    this.spatialDelay = ctx.createDelay(0.05);
-    this.spatialDelay.delayTime.value = 0.015; // 15ms Haas effect delay
+    // 4. Spatial / Stereo expansion stage (mid-side matrix)
+    //
+    //    L_out = M + S * width        M = (L + R) / 2
+    //    R_out = M - S * width        S = (L - R) / 2
+    //
+    // At width = 1 and zero side delay this matrix is an exact identity, so the
+    // stage stays permanently wired and "bypass" simply means neutral settings.
+    // The Haas delay sits on the side signal only, which widens the image
+    // without unbalancing the left/right levels.
+    const spatialInput = ctx.createGain();
+    // Force a stereo frame so mono sources are up-mixed to both channels before
+    // the splitter (which is 'discrete' and would otherwise leave R silent).
+    spatialInput.channelCount = 2;
+    spatialInput.channelCountMode = 'explicit';
+    spatialInput.channelInterpretation = 'speakers';
+
+    const spatialSplitter = ctx.createChannelSplitter(2);
+    const spatialMerger = ctx.createChannelMerger(2);
+
+    const spatialMidGain = ctx.createGain();
+    spatialMidGain.gain.value = 0.5;
+
+    const spatialSideLGain = ctx.createGain();
+    spatialSideLGain.gain.value = 0.5;
+    const spatialSideRGain = ctx.createGain();
+    spatialSideRGain.gain.value = -0.5;
+    const spatialSideSum = ctx.createGain();
+    spatialSideSum.gain.value = 1;
+
+    const spatialDelay = ctx.createDelay(0.05);
+    spatialDelay.delayTime.value = 0; // neutral until spatial audio is enabled
+
+    const initialWidth = this.settings.isSpatialAudioEnabled
+      ? this.settings.spatialStereoWidth
+      : 1;
+    const spatialWidthPos = ctx.createGain();
+    spatialWidthPos.gain.value = initialWidth;
+    const spatialWidthNeg = ctx.createGain();
+    spatialWidthNeg.gain.value = -initialWidth;
+
+    this.spatialInput = spatialInput;
+    this.spatialSplitter = spatialSplitter;
+    this.spatialMerger = spatialMerger;
+    this.spatialMidGain = spatialMidGain;
+    this.spatialSideLGain = spatialSideLGain;
+    this.spatialSideRGain = spatialSideRGain;
+    this.spatialSideSum = spatialSideSum;
+    this.spatialDelay = spatialDelay;
+    this.spatialWidthPos = spatialWidthPos;
+    this.spatialWidthNeg = spatialWidthNeg;
 
     // 5. Master Gain node
     this.masterGainNode = ctx.createGain();
@@ -140,7 +190,7 @@ export class AudioEngine {
     this.analyserNode.smoothingTimeConstant = 0.82;
 
     // Connect chain:
-    // Source -> Preamp -> EQ Filter 0..9 -> Master Gain -> Analyser -> Destination
+    // Source -> Preamp -> EQ 0..9 -> Spatial M/S -> Master Gain -> Analyser -> Destination
     let prevNode: AudioNode = this.sourceNode;
 
     prevNode.connect(this.preampGainNode);
@@ -151,22 +201,37 @@ export class AudioEngine {
       prevNode = filter;
     }
 
-    prevNode.connect(this.masterGainNode);
+    prevNode.connect(spatialInput);
+
+    // Mid: both channels summed at 0.5 -> (L + R) / 2
+    spatialInput.connect(spatialSplitter);
+    spatialSplitter.connect(spatialMidGain, 0);
+    spatialSplitter.connect(spatialMidGain, 1);
+
+    // Side: (L - R) / 2, then delayed and scaled by width
+    spatialSplitter.connect(spatialSideLGain, 0);
+    spatialSplitter.connect(spatialSideRGain, 1);
+    spatialSideLGain.connect(spatialSideSum);
+    spatialSideRGain.connect(spatialSideSum);
+    spatialSideSum.connect(spatialDelay);
+    spatialDelay.connect(spatialWidthPos);
+    spatialDelay.connect(spatialWidthNeg);
+
+    // Recombine: left = M + S*w, right = M - S*w
+    spatialMidGain.connect(spatialMerger, 0, 0);
+    spatialWidthPos.connect(spatialMerger, 0, 0);
+    spatialMidGain.connect(spatialMerger, 0, 1);
+    spatialWidthNeg.connect(spatialMerger, 0, 1);
+
+    spatialMerger.connect(this.masterGainNode);
     this.masterGainNode.connect(this.analyserNode);
     this.analyserNode.connect(ctx.destination);
-
-    // Synth Gain node connects to Preamp as well so procedural audio travels through EQ and Analyser
-    this.synthGainNode = ctx.createGain();
-    this.synthGainNode.gain.setValueAtTime(0.4, ctx.currentTime);
-    this.synthGainNode.connect(this.preampGainNode);
   }
 
   public async loadTrack(track: Track, autoPlay: boolean = true): Promise<void> {
     await this.ensureContext();
     this.currentTrack = track;
-    this.stopSynth();
 
-    // Revoke previous blob URL if needed
     if (this.currentBlobUrl) {
       URL.revokeObjectURL(this.currentBlobUrl);
       this.currentBlobUrl = null;
@@ -177,191 +242,83 @@ export class AudioEngine {
     if (track.audioBlob) {
       this.currentBlobUrl = URL.createObjectURL(track.audioBlob);
       this.audioElement.src = this.currentBlobUrl;
-      this.audioElement.load();
-      if (autoPlay) {
-        try {
-          await this.audioElement.play();
-        } catch {
-          // Playback interaction policy
-        }
-      }
     } else if (track.audioUrl) {
       this.audioElement.src = track.audioUrl;
-      this.audioElement.load();
-      if (autoPlay) {
-        try {
-          await this.audioElement.play();
-        } catch {
-          // Playback error
-        }
-      }
     } else {
-      // Procedural audiophile master synthesis
       this.audioElement.pause();
-      this.audioElement.src = '';
-      if (autoPlay) {
-        this.startSynth(track);
+      this.audioElement.removeAttribute('src');
+      return;
+    }
+
+    this.audioElement.load();
+    // load() resets the rate to defaultPlaybackRate; set both so it sticks.
+    this.applyPlaybackRate();
+    if (autoPlay) {
+      try {
+        await this.audioElement.play();
+      } catch {
+        // Autoplay policy or an interrupting load; state events report it.
       }
     }
   }
 
   /**
-   * Generates rich audiophile synthesized acoustic/electronic pieces
-   * in real-time when playing demo tracks offline.
+   * Id of the track currently loaded into the engine, or null if loadTrack has
+   * never run. Callers use this to tell "paused" apart from "nothing loaded".
    */
-  private startSynth(track: Track) {
-    if (!this.ctx || !this.synthGainNode) return;
-    this.isSynthPlaying = true;
-    this.synthStartTime = this.ctx.currentTime;
-    this.updateMediaSessionPlaybackState('playing');
-    this.onStateChangeCallback?.(true);
-
-    const bpm = track.bpm || 100;
-    const intervalMs = (60 / bpm) * 500; // 8th notes
-
-    // Chord progressions per track style
-    const isMajor = track.key?.includes('Major');
-    const rootFreq = track.id.includes('solaris') ? 138.59 : track.id.includes('shibuya') ? 155.56 : track.id.includes('forest') ? 110.0 : 146.83; // D, Eb, A, D
-
-    const scaleIntervals = isMajor ? [0, 4, 7, 11, 12, 16, 19] : [0, 3, 7, 10, 12, 15, 19];
-    let step = 0;
-
-    const playStep = () => {
-      if (!this.isSynthPlaying || !this.ctx || !this.synthGainNode) return;
-
-      const elapsed = this.ctx.currentTime - this.synthStartTime;
-      const duration = track.duration || 120;
-
-      if (this.onTimeUpdateCallback) {
-        this.onTimeUpdateCallback(elapsed % duration, duration);
-      }
-
-      if (elapsed >= duration) {
-        this.stopSynth();
-        if (this.onEndedCallback) {
-          this.onEndedCallback();
-        }
-        return;
-      }
-
-      // Generate lush chord note
-      const osc = this.ctx.createOscillator();
-      const noteGain = this.ctx.createGain();
-      const filter = this.ctx.createBiquadFilter();
-
-      const noteOffset = scaleIntervals[step % scaleIntervals.length];
-      const octaveMult = (step % 4 === 0) ? 0.5 : (step % 3 === 0) ? 2 : 1;
-      const freq = rootFreq * Math.pow(2, noteOffset / 12) * octaveMult;
-
-      osc.type = track.id.includes('solaris') ? 'triangle' : track.id.includes('hyperdrive') ? 'sawtooth' : 'sine';
-      osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
-
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(track.id.includes('shibuya') ? 1800 : 3800, this.ctx.currentTime);
-
-      const now = this.ctx.currentTime;
-      const attack = 0.08;
-      const release = (intervalMs / 1000) * 1.5;
-
-      noteGain.gain.setValueAtTime(0.0001, now);
-      noteGain.gain.exponentialRampToValueAtTime(0.25, now + attack);
-      noteGain.gain.exponentialRampToValueAtTime(0.0001, now + release);
-
-      osc.connect(filter);
-      filter.connect(noteGain);
-      noteGain.connect(this.synthGainNode);
-
-      osc.start(now);
-      osc.stop(now + release);
-
-      // Sub-bass kick on 1 and 3 beats
-      if (step % 2 === 0) {
-        const bassOsc = this.ctx.createOscillator();
-        const bassGain = this.ctx.createGain();
-        bassOsc.type = 'sine';
-        bassOsc.frequency.setValueAtTime(rootFreq * 0.5, now);
-        bassOsc.frequency.exponentialRampToValueAtTime(35, now + 0.3);
-
-        bassGain.gain.setValueAtTime(0.35, now);
-        bassGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
-
-        bassOsc.connect(bassGain);
-        bassGain.connect(this.synthGainNode);
-        bassOsc.start(now);
-        bassOsc.stop(now + 0.35);
-      }
-
-      step++;
-    };
-
-    playStep();
-    this.synthIntervalId = window.setInterval(playStep, intervalMs);
-  }
-
-  private stopSynth() {
-    this.isSynthPlaying = false;
-    if (this.synthIntervalId !== null) {
-      clearInterval(this.synthIntervalId);
-      this.synthIntervalId = null;
-    }
+  public getLoadedTrackId(): string | null {
+    return this.currentTrack?.id ?? null;
   }
 
   public async play(): Promise<void> {
+    // Nothing has been loaded yet: calling play() on the empty audio element
+    // would only reject, so leave it to the caller to loadTrack first.
+    if (!this.currentTrack) return;
+
     await this.ensureContext();
-    if (this.currentTrack && !this.currentTrack.audioBlob && !this.currentTrack.audioUrl) {
-      if (!this.isSynthPlaying) {
-        this.startSynth(this.currentTrack);
-      }
-    } else {
+    try {
       await this.audioElement.play();
+    } catch {
+      // AbortError when a pause() or a new load() interrupts this play();
+      // the 'pause' listener already reports the resulting state.
+      return;
     }
     this.updateMediaSessionPlaybackState('playing');
     this.onStateChangeCallback?.(true);
   }
 
   public pause(): void {
-    if (this.isSynthPlaying) {
-      this.stopSynth();
-      this.onStateChangeCallback?.(false);
-      this.updateMediaSessionPlaybackState('paused');
-    } else {
-      this.audioElement.pause();
-    }
+    this.audioElement.pause();
   }
 
   public isPlaying(): boolean {
-    if (this.isSynthPlaying) return true;
     return !this.audioElement.paused && !this.audioElement.ended;
   }
 
   public seek(seconds: number): void {
-    if (this.isSynthPlaying) {
-      if (this.ctx) {
-        this.synthStartTime = this.ctx.currentTime - seconds;
-      }
-    } else {
-      this.audioElement.currentTime = Math.max(0, Math.min(seconds, this.audioElement.duration || seconds));
-    }
+    this.audioElement.currentTime = Math.max(0, Math.min(seconds, this.audioElement.duration || seconds));
     if (this.onTimeUpdateCallback) {
       this.onTimeUpdateCallback(seconds, this.getDuration());
     }
   }
 
   public getCurrentTime(): number {
-    if (this.isSynthPlaying) {
-      if (!this.ctx) return 0;
-      const elapsed = this.ctx.currentTime - this.synthStartTime;
-      const dur = this.currentTrack?.duration || 120;
-      return elapsed % dur;
-    }
     return this.audioElement.currentTime || 0;
   }
 
   public getDuration(): number {
-    if (this.isSynthPlaying) {
-      return this.currentTrack?.duration || 120;
-    }
     return this.audioElement.duration || this.currentTrack?.duration || 0;
+  }
+
+  public setPlaybackRate(rate: number): void {
+    this.settings.playbackRate = Math.max(0.25, Math.min(4, rate || 1));
+    this.applyPlaybackRate();
+  }
+
+  private applyPlaybackRate(): void {
+    this.audioElement.preservesPitch = true;
+    this.audioElement.defaultPlaybackRate = this.settings.playbackRate;
+    this.audioElement.playbackRate = this.settings.playbackRate;
   }
 
   public setVolume(volume: number): void {
@@ -405,10 +362,50 @@ export class AudioEngine {
 
   public setSpatialAudioEnabled(enabled: boolean): void {
     this.settings.isSpatialAudioEnabled = enabled;
-    // When spatial audio is enabled, adjust Q and slight stereo width
-    if (this.spatialDelay && this.ctx) {
-      this.spatialDelay.delayTime.setValueAtTime(enabled ? 0.02 : 0, this.ctx.currentTime);
+    this.applySpatialStage();
+  }
+
+  /**
+   * Stereo width for the mid/side stage. 0 = mono, 1 = untouched, 2 = very wide.
+   * Only takes effect while spatial audio is enabled.
+   */
+  public setStereoWidth(width: number): void {
+    this.settings.spatialStereoWidth = Math.max(0, Math.min(2, width));
+    this.applySpatialStage();
+  }
+
+  /**
+   * Pushes the current spatial settings into the M/S matrix. Disabled means
+   * width = 1 and no side delay, which is a bit-exact identity.
+   */
+  private applySpatialStage(): void {
+    if (!this.ctx || !this.spatialWidthPos || !this.spatialWidthNeg || !this.spatialDelay) {
+      return;
     }
+
+    const enabled = this.settings.isSpatialAudioEnabled;
+    const width = enabled ? this.settings.spatialStereoWidth : 1;
+    const sideDelay = enabled ? 0.015 : 0; // 15ms Haas delay on the side signal only
+    const now = this.ctx.currentTime;
+
+    // Short ramps instead of hard steps so toggling does not click.
+    this.spatialWidthPos.gain.setTargetAtTime(width, now, 0.015);
+    this.spatialWidthNeg.gain.setTargetAtTime(-width, now, 0.015);
+    this.spatialDelay.delayTime.setTargetAtTime(sideDelay, now, 0.015);
+  }
+
+  /**
+   * Restores saved settings. Safe before the audio graph exists: the graph
+   * reads these values when it is built on the first play.
+   */
+  public applySettings(saved: Partial<AudioEngineSettings>): void {
+    this.settings = { ...this.settings, ...saved };
+    this.setVolume(this.settings.volume);
+    this.setMuted(this.settings.isMuted);
+    this.setPreampGain(this.settings.preampGain);
+    this.setEQGains(this.settings.eqGains);
+    this.applySpatialStage();
+    this.setPlaybackRate(this.settings.playbackRate ?? 1);
   }
 
   public getSettings(): AudioEngineSettings {
@@ -438,9 +435,9 @@ export class AudioEngine {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: track.title,
         artist: track.artist,
-        album: `${track.album} • [${track.format} ${track.bitDepth}b/${Math.round(track.sampleRate / 1000)}kHz]`,
+        album: track.album,
         artwork: track.coverArtUrl
-          ? [{ src: track.coverArtUrl, sizes: '512x512', type: 'image/svg+xml' }]
+          ? [{ src: track.coverArtUrl, sizes: '512x512', type: track.coverArtBlob?.type || 'image/jpeg' }]
           : [],
       });
     }

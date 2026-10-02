@@ -1,6 +1,6 @@
 {
-  "name": "Aura Hi-Res Audio Player",
+  "name": "HighFi Player",
   "description": "An offline high-fidelity music player for macOS with synced lyrics, lossless audio engine, smart auto-playlists, and desktop shortcuts.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }

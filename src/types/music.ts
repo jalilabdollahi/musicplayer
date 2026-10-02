@@ -1,4 +1,14 @@
-export type AudioFormat = 'FLAC' | 'ALAC' | 'WAV' | 'AIFF' | 'DSD' | 'MP3' | 'AAC' | 'OGG';
+export type AudioFormat =
+  | 'FLAC'
+  | 'ALAC'
+  | 'WAV'
+  | 'AIFF'
+  | 'DSD'
+  | 'MP3'
+  | 'AAC'
+  | 'M4A'
+  | 'OGG'
+  | 'OPUS';
 
 export interface SyncedLyricLine {
   id: string;
@@ -14,18 +24,25 @@ export interface Track {
   album: string;
   duration: number; // in seconds
   format: AudioFormat;
-  sampleRate: number; // in Hz (e.g., 96000, 192000, 48000, 44100)
-  bitDepth: number; // in bits (e.g., 24, 32, 16)
-  channels: number; // e.g., 2
-  bitrate: number; // in kbps (e.g., 2822, 1411, 320)
+  /** Hz; 0 when the file header could not be read. */
+  sampleRate: number;
+  /** Bits; 0 when unknown (always unknown for lossy formats). */
+  bitDepth: number;
+  channels: number;
+  /** kbps; for lossy files this is the average over the whole file. */
+  bitrate: number;
   genre: string;
   year?: number;
+  trackNo?: number;
   bpm?: number;
   key?: string;
+  /** Runtime object URL for the artwork. Never persisted. */
   coverArtUrl?: string;
+  /** Embedded artwork, persisted alongside the track record. */
+  coverArtBlob?: Blob;
+  /** Audio bytes for imported tracks. Lives in its own store, hydrated on play. */
   audioBlob?: Blob;
-  audioUrl?: string; // blob URL or synthesized audio
-  audioBuffer?: AudioBuffer;
+  audioUrl?: string;
   lyrics?: SyncedLyricLine[];
   rawLrc?: string;
   isFavorite?: boolean;
@@ -34,6 +51,27 @@ export interface Track {
   isHiRes: boolean;
   filePath?: string;
   fileSize?: number;
+  /**
+   * Where the audio comes from. Imported tracks are copied into IndexedDB;
+   * folder tracks are read from a linked directory on every play.
+   */
+  source?: 'imported' | 'folder';
+  folderId?: string;
+  /** Path inside the linked folder, '/'-separated. */
+  relPath?: string;
+  /** File lastModified at scan time, used to spot changed files on rescan. */
+  fileModified?: number;
+}
+
+/** A directory linked through the File System Access API. */
+export interface LinkedFolder {
+  id: string;
+  name: string;
+  handle: FileSystemDirectoryHandle;
+  addedAt: number;
+  lastScanAt?: number;
+  /** Files the user removed from the library; rescans skip them. */
+  excluded?: string[];
 }
 
 export interface SmartPlaylistRule {
@@ -91,4 +129,6 @@ export interface AudioEngineSettings {
   isSpatialAudioEnabled: boolean;
   spatialStereoWidth: number; // 0 to 2 (1 = normal)
   visualizerMode: VisualizerMode;
+  /** 1 = normal speed. Pitch is preserved at other rates. */
+  playbackRate: number;
 }

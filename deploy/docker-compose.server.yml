@@ -1,0 +1,9 @@
+services:
+  highfi:
+    build: .
+    image: highfi-player:latest
+    container_name: highfi-player
+    # Published on all interfaces: reached directly as http://91.98.123.217:3012
+    ports:
+      - "3012:80"
+    restart: unless-stopped

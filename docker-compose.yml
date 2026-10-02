@@ -1,0 +1,8 @@
+services:
+  highfi:
+    build: .
+    image: highfi-player:latest
+    container_name: highfi-player
+    ports:
+      - "8088:80"
+    restart: unless-stopped

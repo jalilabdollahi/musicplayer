@@ -1,0 +1,74 @@
+{
+  "id": "/",
+  "name": "HighFi Player",
+  "short_name": "HighFi",
+  "description": "A music player for the files on your device, with linked folders, synced lyrics, an equalizer and smart playlists. Works offline.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone"
+  ],
+  "orientation": "any",
+  "background_color": "#0b0b0e",
+  "theme_color": "#0b0b0e",
+  "categories": [
+    "music",
+    "entertainment",
+    "utilities"
+  ],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "file_handlers": [
+    {
+      "action": "/",
+      "accept": {
+        "audio/mpeg": [
+          ".mp3"
+        ],
+        "audio/flac": [
+          ".flac"
+        ],
+        "audio/wav": [
+          ".wav"
+        ],
+        "audio/aiff": [
+          ".aif",
+          ".aiff"
+        ],
+        "audio/mp4": [
+          ".m4a"
+        ],
+        "audio/ogg": [
+          ".ogg",
+          ".opus"
+        ],
+        "text/plain": [
+          ".lrc"
+        ]
+      }
+    }
+  ],
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  }
+}
