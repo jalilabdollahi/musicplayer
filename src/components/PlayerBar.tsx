@@ -167,6 +167,33 @@ export function VolumeControl({
   );
 }
 
+export const PLAYBACK_RATES = [1, 1.5, 2];
+
+export function nextPlaybackRate(rate: number): number {
+  const i = PLAYBACK_RATES.indexOf(rate);
+  return PLAYBACK_RATES[(i + 1) % PLAYBACK_RATES.length];
+}
+
+/** Cycles 1x → 1.5x → 2x. Tinted whenever the speed is not normal. */
+export function SpeedButton({ rate, onCycle, className = "" }: { rate: number; onCycle: () => void; className?: string }) {
+  const changed = rate !== 1;
+  return (
+    <button
+      type="button"
+      onClick={onCycle}
+      aria-label={`Playback speed ${rate}x`}
+      title={`Playback speed: ${rate}x`}
+      className={cx(
+        "inline-flex h-8 min-w-11 shrink-0 items-center justify-center rounded-full px-2 text-[13px] font-bold tabular-nums transition-colors",
+        changed ? "bg-accent/15 text-accent hover:bg-accent/25" : "text-muted hover:bg-white/[0.06] hover:text-fg",
+        className,
+      )}
+    >
+      {rate}x
+    </button>
+  );
+}
+
 interface PlayerBarProps extends TransportProps {
   volume: number;
   isMuted: boolean;
@@ -175,6 +202,8 @@ interface PlayerBarProps extends TransportProps {
   onToggleFavorite: (id: string) => void;
   onOpenNowPlaying: (panel?: "lyrics" | "queue") => void;
   onOpenEqualizer: () => void;
+  playbackRate: number;
+  onCyclePlaybackRate: () => void;
 }
 
 export function PlayerBar(props: PlayerBarProps) {
@@ -225,6 +254,7 @@ export function PlayerBar(props: PlayerBarProps) {
         </div>
 
         <div className="flex items-center justify-end gap-0.5">
+          <SpeedButton rate={props.playbackRate} onCycle={props.onCyclePlaybackRate} />
           <IconButton label="Lyrics" onClick={() => onOpenNowPlaying("lyrics")} disabled={!currentTrack} size="sm">
             <MicVocal size={17} />
           </IconButton>

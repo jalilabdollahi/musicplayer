@@ -42,7 +42,7 @@ import {
 
 import { Sidebar } from "./components/Sidebar";
 import { TrackList, TrackActions } from "./components/TrackList";
-import { PlayerBar } from "./components/PlayerBar";
+import { PlayerBar, nextPlaybackRate } from "./components/PlayerBar";
 import { NowPlaying, NowPlayingPanel } from "./components/NowPlaying";
 import { EqualizerModal } from "./components/EqualizerModal";
 import { TrackInfoModal } from "./components/TrackInfoModal";
@@ -548,6 +548,12 @@ export default function App() {
     setShuffleHistory([]);
   };
 
+  const handleCyclePlaybackRate = () => {
+    const playbackRate = nextPlaybackRate(audioSettings.playbackRate ?? 1);
+    audioEngine.setPlaybackRate(playbackRate);
+    setAudioSettings((prev) => ({ ...prev, playbackRate }));
+  };
+
   const handleCycleRepeat = () => setRepeatMode((m) => (m === "off" ? "all" : m === "all" ? "one" : "off"));
 
   // ---------------------------------------------------------------- Queue editing
@@ -828,6 +834,9 @@ export default function App() {
       } else if (mod && key === "r") {
         handled();
         handleCycleRepeat();
+      } else if (mod && e.key === ".") {
+        handled();
+        handleCyclePlaybackRate();
       } else if (mod && key === "l") {
         handled();
         setNowPlaying((np) => (np ? null : { panel: "lyrics" }));
@@ -1185,6 +1194,8 @@ export default function App() {
         onToggleFavorite={toggleFavorite}
         onOpenNowPlaying={(panel) => setNowPlaying({ panel })}
         onOpenEqualizer={() => setShowEqualizer(true)}
+        playbackRate={audioSettings.playbackRate ?? 1}
+        onCyclePlaybackRate={handleCyclePlaybackRate}
       />
 
       <nav className="pb-safe flex shrink-0 border-t border-line bg-surface/95 backdrop-blur-xl md:hidden" aria-label="Sections">
@@ -1301,6 +1312,8 @@ export default function App() {
           onUpdateLyrics={updateLyrics}
           onPlayIndex={(i) => playTrackAtIndex(i)}
           onRemoveIndex={removeFromQueue}
+          playbackRate={audioSettings.playbackRate ?? 1}
+          onCyclePlaybackRate={handleCyclePlaybackRate}
           onClearUpcoming={() => setQueue((q) => q.slice(0, currentIndex + 1))}
           onShuffleUpcoming={() =>
             setQueue((q) => {

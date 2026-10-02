@@ -4,7 +4,7 @@ import { SyncedLyricLine, Track } from "../types/music";
 import { Dialog } from "./Dialog";
 import { LyricsPanel } from "./LyricsPanel";
 import { QueueList } from "./QueueList";
-import { Scrubber, Transport, TransportProps, VolumeControl } from "./PlayerBar";
+import { Scrubber, SpeedButton, Transport, TransportProps, VolumeControl } from "./PlayerBar";
 import { Artwork, IconButton, cx, qualityLabel } from "./ui";
 
 export type NowPlayingPanel = "lyrics" | "queue";
@@ -37,6 +37,8 @@ interface NowPlayingProps extends TransportProps {
   onRemoveIndex: (i: number) => void;
   onClearUpcoming: () => void;
   onShuffleUpcoming: () => void;
+  playbackRate: number;
+  onCyclePlaybackRate: () => void;
 }
 
 export function NowPlaying(props: NowPlayingProps) {
@@ -145,15 +147,19 @@ export function NowPlaying(props: NowPlayingProps) {
               {wide ? (
                 <div className="flex w-full items-center justify-between">
                   <VolumeControl volume={props.volume} isMuted={props.isMuted} onSetVolume={props.onSetVolume} onToggleMute={props.onToggleMute} />
-                  {track && (
-                    <span className="rounded bg-white/10 px-2 py-1 text-[11px] font-semibold tracking-wide text-fg/70">{qualityLabel(track)}</span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <SpeedButton rate={props.playbackRate} onCycle={props.onCyclePlaybackRate} className={props.playbackRate === 1 ? "text-fg/70" : ""} />
+                    {track && (
+                      <span className="rounded bg-white/10 px-2 py-1 text-[11px] font-semibold tracking-wide text-fg/70">{qualityLabel(track)}</span>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="flex w-full items-center justify-between px-2">
                   <IconButton label="Lyrics" active={panel === "lyrics"} onClick={() => togglePanel("lyrics")} className={panel === "lyrics" ? "" : "text-fg/70"}>
                     <MicVocal size={20} />
                   </IconButton>
+                  <SpeedButton rate={props.playbackRate} onCycle={props.onCyclePlaybackRate} className={cx("h-9", props.playbackRate === 1 && "text-fg/70")} />
                   <IconButton label="Equalizer" onClick={props.onOpenEqualizer} className="text-fg/70">
                     <SlidersHorizontal size={19} />
                   </IconButton>

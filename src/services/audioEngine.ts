@@ -58,6 +58,7 @@ export class AudioEngine {
     isSpatialAudioEnabled: false,
     spatialStereoWidth: 1.5,
     visualizerMode: 'spectrum',
+    playbackRate: 1,
   };
 
   private currentBlobUrl: string | null = null;
@@ -250,6 +251,8 @@ export class AudioEngine {
     }
 
     this.audioElement.load();
+    // load() resets the rate to defaultPlaybackRate; set both so it sticks.
+    this.applyPlaybackRate();
     if (autoPlay) {
       try {
         await this.audioElement.play();
@@ -305,6 +308,17 @@ export class AudioEngine {
 
   public getDuration(): number {
     return this.audioElement.duration || this.currentTrack?.duration || 0;
+  }
+
+  public setPlaybackRate(rate: number): void {
+    this.settings.playbackRate = Math.max(0.25, Math.min(4, rate || 1));
+    this.applyPlaybackRate();
+  }
+
+  private applyPlaybackRate(): void {
+    this.audioElement.preservesPitch = true;
+    this.audioElement.defaultPlaybackRate = this.settings.playbackRate;
+    this.audioElement.playbackRate = this.settings.playbackRate;
   }
 
   public setVolume(volume: number): void {
@@ -391,6 +405,7 @@ export class AudioEngine {
     this.setPreampGain(this.settings.preampGain);
     this.setEQGains(this.settings.eqGains);
     this.applySpatialStage();
+    this.setPlaybackRate(this.settings.playbackRate ?? 1);
   }
 
   public getSettings(): AudioEngineSettings {

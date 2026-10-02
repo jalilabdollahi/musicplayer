@@ -129,4 +129,6 @@ export interface AudioEngineSettings {
   isSpatialAudioEnabled: boolean;
   spatialStereoWidth: number; // 0 to 2 (1 = normal)
   visualizerMode: VisualizerMode;
+  /** 1 = normal speed. Pitch is preserved at other rates. */
+  playbackRate: number;
 }
