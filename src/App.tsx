@@ -50,6 +50,7 @@ import { SmartPlaylistModal } from "./components/SmartPlaylistModal";
 import { ShortcutsModal } from "./components/ShortcutsModal";
 import { AddMusicModal } from "./components/AddMusicModal";
 import { InstallButton, InstallHelpModal, useInstallPrompt } from "./components/InstallPrompt";
+import { InstallGate, installGateDismissed } from "./components/InstallGate";
 import {
   Album,
   AlbumGrid,
@@ -191,7 +192,10 @@ export default function App() {
   const [toast, setToast] = useState<Toast | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
-  const { mode: installMode, promptInstall } = useInstallPrompt();
+  const { mode: installMode, installed: justInstalled, promptInstall } = useInstallPrompt();
+  // Shown in front of the player in a browser tab; never in the dev server.
+  const [gateOpen, setGateOpen] = useState(() => !import.meta.env.DEV && !installGateDismissed());
+  const showGate = gateOpen && installMode !== null;
 
   const searchRef = useRef<HTMLInputElement | null>(null);
   const filesInputRef = useRef<HTMLInputElement | null>(null);
@@ -798,6 +802,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (showGate) return;
       const el = document.activeElement;
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
         if (e.key === "Escape" && el === searchRef.current) el.blur();
@@ -1355,6 +1360,9 @@ export default function App() {
             navigate({ kind: "playlist", id: pl.id });
           }}
         />
+      )}
+      {showGate && installMode && (
+        <InstallGate mode={installMode} installed={justInstalled} onInstall={() => promptInstall()} onContinue={() => setGateOpen(false)} />
       )}
       {showInstallHelp && installMode && installMode !== "prompt" && (
         <InstallHelpModal mode={installMode} onClose={() => setShowInstallHelp(false)} />
