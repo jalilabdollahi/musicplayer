@@ -4,7 +4,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AudioLines, Disc3, FolderOpen, Library, ListMusic, Music2, Plus, Trash2, TriangleAlert, Upload, Users } from "lucide-react";
+import { Disc3, FolderOpen, Library, ListMusic, Music2, Plus, Trash2, TriangleAlert, Upload, Users } from "lucide-react";
 import { AudioEngineSettings, LinkedFolder, Playlist, RepeatMode, SyncedLyricLine, Track } from "./types/music";
 import { audioEngine } from "./services/audioEngine";
 import {
@@ -49,6 +49,7 @@ import { TrackInfoModal } from "./components/TrackInfoModal";
 import { SmartPlaylistModal } from "./components/SmartPlaylistModal";
 import { ShortcutsModal } from "./components/ShortcutsModal";
 import { AddMusicModal } from "./components/AddMusicModal";
+import { AppLogo } from "./components/AppLogo";
 import { InstallButton, InstallHelpModal, useInstallPrompt } from "./components/InstallPrompt";
 import { InstallGate, installGateDismissed } from "./components/InstallGate";
 import {
@@ -1154,9 +1155,7 @@ export default function App() {
           <div className="relative">
             {/* Phone app bar */}
             <div className="pt-safe sticky top-0 z-20 flex h-14 items-center gap-2 bg-bg/80 px-4 backdrop-blur-xl md:hidden">
-              <span className="grid size-7 place-items-center rounded-lg bg-accent text-accent-fg">
-                <AudioLines size={16} strokeWidth={2.4} />
-              </span>
+              <AppLogo className="size-7 ring-1 ring-line" />
               <span className="flex-1 font-bold tracking-tight">HighFi</span>
               {installMode && <InstallButton mode={installMode} onClick={install} variant="appbar" />}
               <IconButton label="Music sources" onClick={() => navigate({ kind: "sources" })}>
