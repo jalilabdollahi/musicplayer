@@ -55,7 +55,7 @@ export const MacTitleBar: React.FC<MacTitleBarProps> = ({
         <div className="h-4 w-[1px] bg-white/10 ml-2 mr-1" />
 
         <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
-          <span className="tracking-tight text-white font-bold">AURA</span>
+          <span className="tracking-tight text-white font-bold">HIGHFI</span>
           <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-400 border border-sky-500/30">
             Hi-Res Studio
           </span>

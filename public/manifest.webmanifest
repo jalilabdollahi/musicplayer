@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "Aura Hi-Res Audio Player",
-  "short_name": "Aura",
+  "name": "HighFi Player",
+  "short_name": "HighFi",
   "description": "An offline high-fidelity music player with synced lyrics, a lossless audio engine, smart auto-playlists and desktop shortcuts.",
   "start_url": "/",
   "scope": "/",

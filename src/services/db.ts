@@ -1,5 +1,8 @@
 import { Track, Playlist, SmartPlaylistRule } from '../types/music';
 
+// Keeps its original name on purpose. The database holds every imported
+// track, so renaming it alongside the app would strand an existing library
+// behind a name nothing reads any more.
 const DB_NAME = 'AuraAudioDB';
 const DB_VERSION = 2;
 
@@ -58,6 +61,8 @@ export function getDB(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
+// Likewise unchanged: a new key would read as "never seeded" and push the
+// demo tracks back into an established library.
 const SEEDED_FLAG = 'aura.demoContentSeeded';
 
 /**

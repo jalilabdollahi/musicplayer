@@ -87,7 +87,7 @@ export function serializeToLrc(lyrics: SyncedLyricLine[], title?: string, artist
   const out: string[] = [];
   if (title) out.push(`[ti:${title}]`);
   if (artist) out.push(`[ar:${artist}]`);
-  out.push(`[re:Aura Hi-Res Player]`);
+  out.push(`[re:HighFi Player]`);
   out.push('');
 
   for (const line of lyrics) {

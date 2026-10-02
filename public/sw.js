@@ -1,5 +1,5 @@
 /**
- * Service worker for the installed Aura app.
+ * Service worker for the installed HighFi Player app.
  *
  * The player is entirely client-side and keeps its library in IndexedDB, so
  * once the shell is cached the app runs with the server unreachable - which is
@@ -8,7 +8,7 @@
  * Bump CACHE_VERSION to retire every previously cached response.
  */
 const CACHE_VERSION = 'v1';
-const CACHE_NAME = `aura-${CACHE_VERSION}`;
+const CACHE_NAME = `highfi-${CACHE_VERSION}`;
 const APP_SHELL = '/index.html';
 
 self.addEventListener('install', (event) => {
