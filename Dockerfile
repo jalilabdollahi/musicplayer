@@ -9,6 +9,8 @@ RUN npm ci
 
 COPY tsconfig.json vite.config.ts index.html ./
 COPY src ./src
+# Manifest, icons and service worker; Vite copies these to the dist root.
+COPY public ./public
 
 RUN npm run build
 
