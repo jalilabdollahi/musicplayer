@@ -1,0 +1,9 @@
+services:
+  highfi:
+    build: .
+    image: highfi-player:latest
+    container_name: highfi-player
+    # Bound to loopback only: host nginx fronts it, matching the other apps here.
+    ports:
+      - "127.0.0.1:3012:80"
+    restart: unless-stopped
