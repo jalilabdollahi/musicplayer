@@ -1,6 +1,6 @@
-import React, { useEffect, useRef } from 'react';
-import { audioEngine } from '../services/audioEngine';
-import { VisualizerMode } from '../types/music';
+import React, { useEffect, useRef } from "react";
+import { audioEngine } from "../services/audioEngine";
+import { VisualizerMode } from "../types/music";
 
 interface VisualizerCanvasProps {
   mode: VisualizerMode;
@@ -12,7 +12,7 @@ interface VisualizerCanvasProps {
 export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
   mode,
   height = 56,
-  className = '',
+  className = "",
   isPlaying,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -22,7 +22,7 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     let bars = 48;
@@ -40,7 +40,7 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
       if (!analyser || !isPlaying) {
         // Subtle ambient idle line
         ctx.beginPath();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.strokeStyle = "rgba(113, 89, 64, 0.15)";
         ctx.lineWidth = 1;
         ctx.moveTo(0, h / 2);
         ctx.lineTo(width, h / 2);
@@ -49,20 +49,22 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
         return;
       }
 
-      if (mode === 'spectrum') {
+      if (mode === "spectrum") {
         const bufferLength = analyser.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
         analyser.getByteFrequencyData(dataArray);
 
-        const barWidth = Math.max(2, (width / bars) - 2);
+        const barWidth = Math.max(2, width / bars - 2);
         const gradient = ctx.createLinearGradient(0, h, 0, 0);
-        gradient.addColorStop(0, 'rgba(56, 189, 248, 0.2)');
-        gradient.addColorStop(0.6, 'rgba(56, 189, 248, 0.8)');
-        gradient.addColorStop(1, 'rgba(226, 176, 83, 0.95)');
+        gradient.addColorStop(0, "rgba(185, 78, 50, 0.2)");
+        gradient.addColorStop(0.6, "rgba(185, 78, 50, 0.8)");
+        gradient.addColorStop(1, "rgba(209, 158, 84, 0.95)");
 
         for (let i = 0; i < bars; i++) {
           // Logarithmic distribution to emphasize musical frequencies
-          const sampleIndex = Math.floor(Math.pow(i / bars, 1.8) * (bufferLength * 0.75));
+          const sampleIndex = Math.floor(
+            Math.pow(i / bars, 1.8) * (bufferLength * 0.75),
+          );
           const val = dataArray[sampleIndex] || 0;
           const barHeight = Math.max(2, (val / 255) * (h - 4));
           const x = i * (barWidth + 2) + 2;
@@ -80,17 +82,17 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
           }
 
           const peakY = h - (peaksRef.current[i] / 255) * (h - 4);
-          ctx.fillStyle = 'rgba(248, 250, 252, 0.85)';
+          ctx.fillStyle = "rgba(118, 82, 48, 0.85)";
           ctx.fillRect(x, peakY - 1, barWidth, 1.5);
         }
-      } else if (mode === 'waveform') {
+      } else if (mode === "waveform") {
         const bufferLength = analyser.fftSize;
         const dataArray = new Uint8Array(bufferLength);
         analyser.getByteTimeDomainData(dataArray);
 
         ctx.lineWidth = 1.8;
-        ctx.strokeStyle = '#38bdf8';
-        ctx.shadowColor = 'rgba(56, 189, 248, 0.6)';
+        ctx.strokeStyle = "#b94e32";
+        ctx.shadowColor = "rgba(185, 78, 50, 0.6)";
         ctx.shadowBlur = 6;
         ctx.beginPath();
 
@@ -123,7 +125,7 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
 
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius * 0.4, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(226, 176, 83, 0.2)';
+        ctx.fillStyle = "rgba(209, 158, 84, 0.2)";
         ctx.fill();
 
         for (let i = 0; i < 32; i++) {
@@ -136,7 +138,7 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
           const x2 = centerX + Math.cos(angle) * (radius + lineLen);
           const y2 = centerY + Math.sin(angle) * (radius + lineLen);
 
-          ctx.strokeStyle = '#38bdf8';
+          ctx.strokeStyle = "#b94e32";
           ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.moveTo(x1, y1);

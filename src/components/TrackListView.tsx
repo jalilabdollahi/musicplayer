@@ -1,21 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   Play,
-  Pause,
   Shuffle,
   Search,
-  Sparkles,
   Heart,
-  Clock,
-  Music,
+  Music2,
   Plus,
-  ArrowUpDown,
+  ArrowDownWideNarrow,
   FolderDown,
-  Info,
-  Sliders,
   Trash2,
-} from 'lucide-react';
-import { AudioFormat, Track } from '../types/music';
+  AudioLines,
+  Disc3,
+  ArrowUpRight,
+} from "lucide-react";
+import { Track } from "../types/music";
 
 interface TrackListViewProps {
   title: string;
@@ -57,315 +55,303 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
   searchInputRef,
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
-  const [sortField, setSortField] = useState<'title' | 'artist' | 'duration' | 'sampleRate' | 'bitrate'>('title');
-  const [sortAsc, setSortAsc] = useState(true);
-
-  const formatDuration = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      onFilesDropped(e.dataTransfer.files);
-    }
-  };
-
-  const handleSort = (field: typeof sortField) => {
-    if (sortField === field) {
-      setSortAsc(!sortAsc);
-    } else {
-      setSortField(field);
-      setSortAsc(true);
-    }
-  };
-
-  // Sort tracks
-  const sortedTracks = [...tracks].sort((a, b) => {
-    let cmp = 0;
-    if (sortField === 'title') cmp = a.title.localeCompare(b.title);
-    else if (sortField === 'artist') cmp = a.artist.localeCompare(b.artist);
-    else if (sortField === 'duration') cmp = a.duration - b.duration;
-    else if (sortField === 'sampleRate') cmp = a.sampleRate - b.sampleRate;
-    else if (sortField === 'bitrate') cmp = a.bitrate - b.bitrate;
-    return sortAsc ? cmp : -cmp;
-  });
-
+  const [sortField, setSortField] = useState("title");
+  const sortedTracks = [...tracks].sort((a, b) =>
+    sortField === "artist"
+      ? a.artist.localeCompare(b.artist)
+      : sortField === "dateAdded"
+        ? b.dateAdded - a.dateAdded
+        : a.title.localeCompare(b.title),
+  );
+  const minutes = Math.round(
+    tracks.reduce((sum, track) => sum + track.duration, 0) / 60,
+  );
+  const featured = tracks.find((t) => t.isFavorite) || tracks[0];
+  const formatTime = (seconds: number) =>
+    `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+  const isAlbums = title === "Albums";
+  const albums = [...new Set(sortedTracks.map((t) => t.album))];
   return (
     <div
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      className="relative flex-1 flex flex-col h-full bg-[#0a0c12] overflow-hidden select-none"
+      className="collection-view"
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node))
+          setIsDragOver(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        if (e.dataTransfer.files.length) onFilesDropped(e.dataTransfer.files);
+      }}
     >
-      {/* Drag & Drop Visual Overlay */}
       {isDragOver && (
-        <div className="absolute inset-0 z-50 bg-sky-950/80 backdrop-blur-md border-2 border-dashed border-sky-400 flex flex-col items-center justify-center pointer-events-none animate-pulse">
-          <FolderDown className="w-16 h-16 text-sky-400 mb-3" />
-          <h3 className="text-xl font-bold text-white">Drop High-Fidelity Audio Files Here</h3>
-          <p className="text-sm text-sky-300 mt-1">FLAC, WAV, ALAC, AIFF, DSD, MP3 & LRC lyrics files</p>
+        <div className="drop-overlay">
+          <FolderDown size={48} />
+          <h2>Good music belongs here.</h2>
+          <p>Drop your audio or lyrics files to add them.</p>
         </div>
       )}
-
-      {/* Header and Controls Area */}
-      <div className="p-6 pb-3 border-b border-white/[0.06] shrink-0 bg-gradient-to-b from-white/[0.02] to-transparent">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-4">
-          <div>
-            <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
-              <span>{title}</span>
-              <span className="text-xs font-mono font-normal text-slate-400 bg-white/[0.06] px-2 py-0.5 rounded-full border border-white/10">
-                {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'}
-              </span>
-            </h1>
-            {subtitle && <p className="text-xs text-slate-400 mt-1">{subtitle}</p>}
-          </div>
-
-          {/* Quick Play Actions */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onPlayAll(sortedTracks, false)}
-              disabled={sortedTracks.length === 0}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-black text-xs font-bold hover:scale-105 active:scale-95 transition-all shadow-md shadow-white/10 cursor-pointer disabled:opacity-40"
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Play All</span>
-            </button>
-
-            <button
-              onClick={() => onPlayAll(sortedTracks, true)}
-              disabled={sortedTracks.length === 0}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-white text-xs font-semibold border border-white/10 transition-all cursor-pointer disabled:opacity-40"
-            >
-              <Shuffle className="w-3.5 h-3.5 text-sky-400" />
-              <span>Shuffle</span>
-            </button>
-
-            <button
-              onClick={onTriggerFileInput}
-              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs font-semibold transition-all cursor-pointer"
-              title="Add local audio files"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Add Files</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Filter and Search Bar */}
-        <div className="flex flex-col sm:flex-row items-center gap-3 pt-1">
-          {/* Search Box */}
-          <div className="relative w-full sm:w-72">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Search title, artist, genre (⌘+F)"
-              className="w-full pl-8 pr-3 py-1.5 bg-white/[0.04] border border-white/10 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500/60"
-            />
-          </div>
-
-          {/* Format Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-            {['all', 'hires', 'FLAC', 'WAV', 'DSD', 'ALAC', 'MP3'].map((fmt) => (
-              <button
-                key={fmt}
-                onClick={() => onFormatFilterChange(fmt)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-medium transition-colors cursor-pointer border whitespace-nowrap ${
-                  formatFilter === fmt
-                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 font-semibold'
-                    : 'bg-white/[0.02] text-slate-400 border-white/[0.06] hover:bg-white/[0.06] hover:text-slate-200'
-                }`}
-              >
-                {fmt === 'all' ? 'All' : fmt === 'hires' ? 'Hi-Res (24b+)' : fmt}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Track Table Header */}
-      <div className="grid grid-cols-12 gap-3 px-6 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-white/[0.04] shrink-0">
-        <div className="col-span-1 text-center">#</div>
-        <div
-          onClick={() => handleSort('title')}
-          className="col-span-5 flex items-center gap-1 cursor-pointer hover:text-slate-300"
-        >
-          <span>Title & Artist</span>
-          {sortField === 'title' && <ArrowUpDown className="w-2.5 h-2.5 text-sky-400" />}
-        </div>
-        <div className="col-span-2 hidden md:block">Album</div>
-        <div
-          onClick={() => handleSort('sampleRate')}
-          className="col-span-2 flex items-center gap-1 cursor-pointer hover:text-slate-300"
-        >
-          <span>Hi-Res Format</span>
-          {sortField === 'sampleRate' && <ArrowUpDown className="w-2.5 h-2.5 text-sky-400" />}
-        </div>
-        <div
-          onClick={() => handleSort('duration')}
-          className="col-span-2 text-right flex items-center justify-end gap-1 cursor-pointer hover:text-slate-300 pr-2"
-        >
-          <Clock className="w-3 h-3" />
-          {sortField === 'duration' && <ArrowUpDown className="w-2.5 h-2.5 text-sky-400" />}
-        </div>
-      </div>
-
-      {/* Track Rows List */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 divide-y divide-white/[0.02]">
-        {sortedTracks.length === 0 ? (
-          <div className="py-20 flex flex-col items-center justify-center text-slate-500 text-center space-y-3">
-            <Music className="w-12 h-12 text-slate-700 stroke-[1.5]" />
-            <p className="text-sm font-medium">No tracks found matching your filter</p>
-            <p className="text-xs text-slate-600 max-w-xs">
-              Drag and drop local audio files (FLAC, WAV, ALAC, DSD) anywhere onto this window to add them.
+      <div className="collection-content">
+        <section className="collection-hero">
+          <div className="hero-copy">
+            <p className="eyebrow">
+              <span className="mint-dot" /> YOUR PERSONAL SOUNDTRACK
             </p>
-          </div>
-        ) : (
-          sortedTracks.map((track, index) => {
-            const isCurrent = track.id === currentTrackId;
-
-            return (
-              <div
-                key={track.id}
-                onDoubleClick={() => onPlayTrack(track)}
-                className={`group grid grid-cols-12 gap-3 items-center px-3 py-2 rounded-xl transition-all select-none cursor-pointer ${
-                  isCurrent
-                    ? 'bg-sky-500/10 border border-sky-500/25 shadow-sm'
-                    : 'hover:bg-white/[0.04] border border-transparent'
-                }`}
+            <h1>{title}</h1>
+            <p className="hero-description">{subtitle}</p>
+            <div className="collection-stats">
+              <span>{tracks.length} tracks</span>
+              <i />{" "}
+              <span>
+                {minutes < 60
+                  ? `${minutes} minutes`
+                  : `${Math.floor(minutes / 60)} hr ${minutes % 60} min`}
+              </span>
+              <i />
+              <span>Endless possibilities</span>
+            </div>
+            <div className="hero-actions">
+              <button
+                className="primary-button"
+                disabled={!tracks.length}
+                onClick={() => onPlayAll(sortedTracks, false)}
               >
-                {/* Index / Play Button */}
-                <div className="col-span-1 flex items-center justify-center text-xs">
-                  {isCurrent && isPlaying ? (
-                    <div className="flex items-end gap-0.5 h-4">
-                      <span className="w-0.5 h-3 bg-sky-400 animate-pulse" />
-                      <span className="w-0.5 h-4 bg-sky-300 animate-bounce" />
-                      <span className="w-0.5 h-2 bg-sky-400 animate-pulse" />
-                    </div>
-                  ) : (
-                    <>
-                      <span className="group-hover:hidden text-slate-400 font-mono text-xs">
-                        {index + 1}
-                      </span>
-                      <button
-                        onClick={() => onPlayTrack(track)}
-                        className="hidden group-hover:flex items-center justify-center w-6 h-6 rounded-full bg-white text-black hover:scale-110 transition-transform cursor-pointer"
-                      >
-                        <Play className="w-3 h-3 fill-current translate-x-0.2" />
-                      </button>
-                    </>
-                  )}
-                </div>
-
-                {/* Title & Artist & Cover */}
-                <div className="col-span-5 flex items-center gap-3 truncate min-w-0">
-                  <div className="w-9 h-9 rounded-lg overflow-hidden bg-slate-800 shrink-0 border border-white/10">
-                    <img
-                      src={track.coverArtUrl}
-                      alt={track.title}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="truncate min-w-0">
-                    <div
-                      className={`text-xs font-semibold truncate ${
-                        isCurrent ? 'text-sky-300' : 'text-white'
-                      }`}
-                    >
-                      {track.title}
-                    </div>
-                    <div className="text-[11px] text-slate-400 truncate">{track.artist}</div>
-                  </div>
-                </div>
-
-                {/* Album */}
-                <div className="col-span-2 hidden md:block text-xs text-slate-400 truncate">
-                  {track.album}
-                </div>
-
-                {/* Format Badge */}
-                <div className="col-span-2 flex items-center gap-1.5 truncate">
-                  <span
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onInspectTrack(track);
-                    }}
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold transition-colors cursor-pointer border ${
-                      track.isHiRes
-                        ? 'bg-amber-400/10 text-amber-300 border-amber-400/30 hover:bg-amber-400/20'
-                        : 'bg-white/[0.04] text-slate-400 border-white/10 hover:bg-white/[0.08]'
-                    }`}
-                    title="Click for full audio stream inspection"
-                  >
-                    <span>{track.format}</span>
-                    <span className="opacity-80">
-                      {track.bitDepth}b/{(track.sampleRate / 1000).toFixed(0)}k
-                    </span>
-                  </span>
-                  {track.bpm && (
-                    <span className="hidden lg:inline text-[9px] font-mono text-slate-400">
-                      {track.bpm}bpm
-                    </span>
-                  )}
-                </div>
-
-                {/* Duration, Favorite & Remove Actions */}
-                <div className="col-span-2 flex items-center justify-end gap-3 pr-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleFavorite(track.id);
-                    }}
-                    className="p-1 text-slate-400 hover:text-rose-400 transition-colors"
-                    title={track.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                    aria-label={track.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                  >
-                    <Heart
-                      className={`w-3.5 h-3.5 ${
-                        track.isFavorite ? 'text-rose-500 fill-rose-500' : ''
-                      }`}
-                    />
-                  </button>
-
-                  <span className="text-xs font-mono-numbers text-slate-400 w-10 text-right">
-                    {formatDuration(track.duration)}
-                  </span>
-
-                  {/* Remove from library */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRemoveTrack(track.id);
-                    }}
-                    className="p-1 rounded text-slate-500 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
-                    title="Remove from library"
-                    aria-label={`Remove ${track.title} from library`}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                <Play size={17} fill="currentColor" /> Play collection
+              </button>
+              <button
+                className="secondary-button"
+                disabled={!tracks.length}
+                onClick={() => onPlayAll(sortedTracks, true)}
+              >
+                <Shuffle size={17} /> Shuffle
+              </button>
+            </div>
+          </div>
+          <div className="hero-art" aria-hidden="true">
+            <div className="record">
+              <div className="record-label">
+                <AudioLines size={32} />
+                <span>HIGHFI SELECTS</span>
               </div>
-            );
-          })
-        )}
+            </div>
+            <div className="record-sleeve">
+              {featured?.coverArtUrl ? (
+                <img src={featured.coverArtUrl} alt="" />
+              ) : (
+                <Disc3 size={72} />
+              )}
+              <span className="sleeve-label">IN GOOD COMPANY.</span>
+            </div>
+            <span className="hero-art-caption">SOUND GOOD. FEEL GOOD.</span>
+          </div>
+        </section>
+        <section className="track-section" aria-label="Tracks">
+          <div className="collection-toolbar">
+            <div className="section-title">
+              <h2>{isAlbums ? "Your albums" : "Your tracks"}</h2>
+              <span>{isAlbums ? albums.length : tracks.length}</span>
+            </div>
+            <button className="text-button" onClick={onTriggerFileInput}>
+              <Plus size={17} /> Import music <ArrowUpRight size={15} />
+            </button>
+          </div>
+          <div className="search-sort-row">
+            <label className="search-box">
+              <Search size={18} />
+              <input
+                ref={searchInputRef}
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+                placeholder="Search your collection"
+                aria-label="Search your collection"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => onSearchChange("")}
+                  aria-label="Clear search"
+                >
+                  ×
+                </button>
+              )}
+            </label>
+            <label className="sort-control">
+              <ArrowDownWideNarrow size={17} />
+              <select
+                value={sortField}
+                onChange={(e) => setSortField(e.target.value)}
+                aria-label="Sort tracks"
+              >
+                <option value="title">Title</option>
+                <option value="artist">Artist</option>
+                <option value="dateAdded">Recently added</option>
+              </select>
+            </label>
+          </div>
+          <div className="format-filters" aria-label="Filter audio format">
+            {["all", "hires", "FLAC", "WAV", "DSD", "ALAC", "MP3"].map(
+              (fmt) => (
+                <button
+                  key={fmt}
+                  className={formatFilter === fmt ? "selected" : ""}
+                  onClick={() => onFormatFilterChange(fmt)}
+                  aria-pressed={formatFilter === fmt}
+                >
+                  {fmt === "all"
+                    ? "All formats"
+                    : fmt === "hires"
+                      ? "Hi-res"
+                      : fmt}
+                </button>
+              ),
+            )}
+          </div>
+          {!tracks.length ? (
+            <div className="empty-collection">
+              <Music2 size={38} />
+              <h3>
+                {searchQuery || formatFilter !== "all"
+                  ? "No matches just yet."
+                  : "Your next favorite is waiting."}
+              </h3>
+              <p>
+                {searchQuery || formatFilter !== "all"
+                  ? "Try another search or audio format."
+                  : "Import music from your device to start listening."}
+              </p>
+              <button className="secondary-button" onClick={onTriggerFileInput}>
+                <Plus size={17} /> Import music
+              </button>
+            </div>
+          ) : isAlbums ? (
+            <div className="album-grid">
+              {albums.map((album) => {
+                const albumTracks = sortedTracks.filter(
+                  (t) => t.album === album,
+                );
+                return (
+                  <button
+                    key={album}
+                    className="album-card"
+                    onClick={() => onPlayAll(albumTracks, false)}
+                  >
+                    <div>
+                      <img src={albumTracks[0].coverArtUrl} alt="" />
+                      <span>
+                        <Play size={22} fill="currentColor" />
+                      </span>
+                    </div>
+                    <strong>{album}</strong>
+                    <small>
+                      {albumTracks[0].artist} · {albumTracks.length} tracks
+                    </small>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <>
+              <div className="track-table-heading">
+                <span>#</span>
+                <span>TRACK</span>
+                <span>ALBUM</span>
+                <span>QUALITY</span>
+                <span>TIME</span>
+                <span />
+              </div>
+              <div className="track-list">
+                {sortedTracks.map((track, index) => {
+                  const current = track.id === currentTrackId;
+                  return (
+                    <div
+                      key={track.id}
+                      className={`track-row ${current ? "current" : ""}`}
+                    >
+                      <button
+                        className="track-number"
+                        onClick={() => onPlayTrack(track)}
+                        aria-label={`Play ${track.title}`}
+                      >
+                        {current && isPlaying ? (
+                          <AudioLines size={18} />
+                        ) : (
+                          <>
+                            <span>{String(index + 1).padStart(2, "0")}</span>
+                            <Play size={15} fill="currentColor" />
+                          </>
+                        )}
+                      </button>
+                      <button
+                        className="track-identity"
+                        onClick={() => onPlayTrack(track)}
+                        aria-label={`Play ${track.title} by ${track.artist}`}
+                      >
+                        <img src={track.coverArtUrl} alt="" />
+                        <span>
+                          <strong>{track.title}</strong>
+                          <small>
+                            {track.artist}
+                            <span className="mobile-quality">
+                              {" "}
+                              · {track.format}
+                            </span>
+                          </small>
+                        </span>
+                      </button>
+                      <span className="track-album">{track.album}</span>
+                      <button
+                        className="quality-badge"
+                        onClick={() => onInspectTrack(track)}
+                        aria-label={`Inspect ${track.title}`}
+                      >
+                        <span>{track.format}</span>
+                        <small>
+                          {track.bitDepth}-bit /{" "}
+                          {Math.round(track.sampleRate / 1000)} kHz
+                        </small>
+                      </button>
+                      <span className="track-duration">
+                        {formatTime(track.duration)}
+                      </span>
+                      <div className="track-actions">
+                        <button
+                          className={`icon-button favorite-button ${track.isFavorite ? "favorited" : ""}`}
+                          onClick={() => onToggleFavorite(track.id)}
+                          aria-label={`${track.isFavorite ? "Unfavorite" : "Favorite"} ${track.title}`}
+                          title={
+                            track.isFavorite
+                              ? "Remove from favorites"
+                              : "Add to favorites"
+                          }
+                          aria-pressed={!!track.isFavorite}
+                        >
+                          <Heart
+                            size={17}
+                            fill={track.isFavorite ? "currentColor" : "none"}
+                          />
+                        </button>
+                        <button
+                          className="icon-button delete-button"
+                          onClick={() => onRemoveTrack(track.id)}
+                          aria-label={`Remove ${track.title} from library`}
+                          title="Remove from library"
+                        >
+                          <Trash2 size={17} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          <p className="collection-end">
+            Your collection. Your kind of listening.
+          </p>
+        </section>
       </div>
     </div>
   );

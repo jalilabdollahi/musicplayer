@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Track,
   Playlist,
@@ -11,8 +11,8 @@ import {
   AudioEngineSettings,
   SyncedLyricLine,
   AudioFormat,
-} from './types/music';
-import { audioEngine } from './services/audioEngine';
+} from "./types/music";
+import { audioEngine } from "./services/audioEngine";
 import {
   getAllTracks,
   saveTracks,
@@ -25,34 +25,41 @@ import {
   deletePlaylist,
   hasSeededDemoContent,
   markDemoContentSeeded,
-} from './services/db';
-import { INITIAL_DEMO_TRACKS, INITIAL_SMART_PLAYLISTS } from './services/demoTracks';
+} from "./services/db";
+import {
+  INITIAL_DEMO_TRACKS,
+  INITIAL_SMART_PLAYLISTS,
+} from "./services/demoTracks";
 import {
   autoGenerateSmartPlaylistsFromLibrary,
   getTracksForSmartPlaylist,
-} from './services/smartPlaylists';
-import { parseAudioFile } from './services/audioMetadata';
-import { parseLrc } from './services/lrcParser';
+} from "./services/smartPlaylists";
+import { parseAudioFile } from "./services/audioMetadata";
+import { parseLrc } from "./services/lrcParser";
 
 // Components
-import { MacTitleBar } from './components/MacTitleBar';
-import { Sidebar } from './components/Sidebar';
-import { TrackListView } from './components/TrackListView';
-import { PlayerBottomBar } from './components/PlayerBottomBar';
-import { SyncedLyricsView } from './components/SyncedLyricsView';
-import { EqualizerModal } from './components/EqualizerModal';
-import { AudioInspectorModal } from './components/AudioInspectorModal';
-import { SmartPlaylistModal } from './components/SmartPlaylistModal';
-import { ShortcutsModal } from './components/ShortcutsModal';
-import { QueueDrawer } from './components/QueueDrawer';
-import { VisualizerCanvas } from './components/VisualizerCanvas';
+import { AppHeader } from "./components/AppHeader";
+import { Dialog } from "./components/Dialog";
+import { Music2, Heart, ListMusic, Search, X } from "lucide-react";
+import { Sidebar } from "./components/Sidebar";
+import { TrackListView } from "./components/TrackListView";
+import { PlayerBottomBar } from "./components/PlayerBottomBar";
+import { SyncedLyricsView } from "./components/SyncedLyricsView";
+import { EqualizerModal } from "./components/EqualizerModal";
+import { AudioInspectorModal } from "./components/AudioInspectorModal";
+import { SmartPlaylistModal } from "./components/SmartPlaylistModal";
+import { ShortcutsModal } from "./components/ShortcutsModal";
+import { QueueDrawer } from "./components/QueueDrawer";
+import { VisualizerCanvas } from "./components/VisualizerCanvas";
 
 export default function App() {
   // Library & Playlists State
   const [tracks, setTracks] = useState<Track[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [currentView, setCurrentView] = useState<string>('all');
-  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
+  const [currentView, setCurrentView] = useState<string>("all");
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(
+    null,
+  );
 
   // Playback State
   const [queue, setQueue] = useState<Track[]>([]);
@@ -61,33 +68,36 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
   const [shuffle, setShuffle] = useState<boolean>(false);
-  const [repeatMode, setRepeatMode] = useState<RepeatMode>('all');
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>("all");
   const [shuffleHistory, setShuffleHistory] = useState<number[]>([]);
 
   // DSP & Engine Settings
   const [audioSettings, setAudioSettings] = useState<AudioEngineSettings>(() =>
-    audioEngine.getSettings()
+    audioEngine.getSettings(),
   );
 
   // UI Views & Modals
+  const [showNavigation, setShowNavigation] = useState(false);
   const [showLyrics, setShowLyrics] = useState<boolean>(false);
   const [showQueue, setShowQueue] = useState<boolean>(false);
   const [showVisualizer, setShowVisualizer] = useState<boolean>(true);
   const [showEqualizerModal, setShowEqualizerModal] = useState<boolean>(false);
   const [showInspectorModal, setShowInspectorModal] = useState<boolean>(false);
-  const [showSmartPlaylistModal, setShowSmartPlaylistModal] = useState<boolean>(false);
+  const [showSmartPlaylistModal, setShowSmartPlaylistModal] =
+    useState<boolean>(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
   const [inspectedTrack, setInspectedTrack] = useState<Track | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
   // Filtering & Search
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [formatFilter, setFormatFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [formatFilter, setFormatFilter] = useState<string>("all");
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const currentTrack: Track | null =
-    currentQueueIndex >= 0 && currentQueueIndex < queue.length ? queue[currentQueueIndex] : null;
+    currentQueueIndex >= 0 && currentQueueIndex < queue.length
+      ? queue[currentQueueIndex]
+      : null;
 
   // The engine stores exactly one callback per event, so it must be wired up
   // once on mount. These refs hold the freshest handler for each event, which
@@ -136,7 +146,7 @@ export default function App() {
           setCurrentQueueIndex(0);
         }
       } catch (err) {
-        console.error('Error initializing audio DB:', err);
+        console.error("Error initializing audio DB:", err);
         // Fallback in-memory
         if (mounted) {
           setTracks(INITIAL_DEMO_TRACKS);
@@ -206,14 +216,16 @@ export default function App() {
       const updatedCount = (fullTrack.playCount || 0) + 1;
       updateTrack(fullTrack.id, { playCount: updatedCount });
       setTracks((prev) =>
-        prev.map((t) => (t.id === fullTrack.id ? { ...t, playCount: updatedCount } : t))
+        prev.map((t) =>
+          t.id === fullTrack.id ? { ...t, playCount: updatedCount } : t,
+        ),
       );
     },
-    [queue]
+    [queue],
   );
 
   const handleTrackEnded = useCallback(() => {
-    if (repeatMode === 'one') {
+    if (repeatMode === "one") {
       audioEngine.seek(0);
       audioEngine.play();
       return;
@@ -223,7 +235,9 @@ export default function App() {
       // Pick random index from unplayed tracks
       const unplayed = queue
         .map((_, idx) => idx)
-        .filter((idx) => !shuffleHistory.includes(idx) && idx !== currentQueueIndex);
+        .filter(
+          (idx) => !shuffleHistory.includes(idx) && idx !== currentQueueIndex,
+        );
 
       if (unplayed.length > 0) {
         const nextIdx = unplayed[Math.floor(Math.random() * unplayed.length)];
@@ -233,7 +247,7 @@ export default function App() {
       } else {
         // All played; reset history
         setShuffleHistory([]);
-        if (repeatMode === 'all') {
+        if (repeatMode === "all") {
           const nextIdx = Math.floor(Math.random() * queue.length);
           playTrackAtIndex(nextIdx);
           return;
@@ -243,14 +257,21 @@ export default function App() {
       if (currentQueueIndex + 1 < queue.length) {
         playTrackAtIndex(currentQueueIndex + 1);
         return;
-      } else if (repeatMode === 'all' && queue.length > 0) {
+      } else if (repeatMode === "all" && queue.length > 0) {
         playTrackAtIndex(0);
         return;
       }
     }
 
     setIsPlaying(false);
-  }, [currentQueueIndex, queue, repeatMode, shuffle, shuffleHistory, playTrackAtIndex]);
+  }, [
+    currentQueueIndex,
+    queue,
+    repeatMode,
+    shuffle,
+    shuffleHistory,
+    playTrackAtIndex,
+  ]);
 
   const handleNextTrack = useCallback(() => {
     if (queue.length === 0) return;
@@ -314,9 +335,16 @@ export default function App() {
     handleNextTrackRef.current = handleNextTrack;
     handlePrevTrackRef.current = handlePrevTrack;
     handleSeekRef.current = handleSeek;
-  }, [handleTrackEnded, handlePlayPause, handleNextTrack, handlePrevTrack, handleSeek]);
+  }, [
+    handleTrackEnded,
+    handlePlayPause,
+    handleNextTrack,
+    handlePrevTrack,
+    handleSeek,
+  ]);
 
   const handleSetVolume = (vol: number) => {
+    audioEngine.setMuted(false);
     audioEngine.setVolume(vol);
     setAudioSettings((prev) => ({ ...prev, volume: vol, isMuted: false }));
   };
@@ -334,9 +362,9 @@ export default function App() {
 
   const handleCycleRepeat = () => {
     setRepeatMode((prev) => {
-      if (prev === 'off') return 'all';
-      if (prev === 'all') return 'one';
-      return 'off';
+      if (prev === "off") return "all";
+      if (prev === "all") return "one";
+      return "off";
     });
   };
 
@@ -353,10 +381,10 @@ export default function App() {
 
     await updateTrack(trackId, { isFavorite: nextFav });
     setTracks((prev) =>
-      prev.map((t) => (t.id === trackId ? { ...t, isFavorite: nextFav } : t))
+      prev.map((t) => (t.id === trackId ? { ...t, isFavorite: nextFav } : t)),
     );
     setQueue((prev) =>
-      prev.map((t) => (t.id === trackId ? { ...t, isFavorite: nextFav } : t))
+      prev.map((t) => (t.id === trackId ? { ...t, isFavorite: nextFav } : t)),
     );
   };
 
@@ -372,7 +400,7 @@ export default function App() {
       await deleteTrack(trackId);
 
       // Release the object URL for cover art extracted from an ID3 tag.
-      if (target?.coverArtUrl?.startsWith('blob:')) {
+      if (target?.coverArtUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(target.coverArtUrl);
       }
 
@@ -391,7 +419,9 @@ export default function App() {
           setCurrentTime(0);
 
           const nextIndex =
-            nextQueue.length === 0 ? -1 : Math.min(currentQueueIndex, nextQueue.length - 1);
+            nextQueue.length === 0
+              ? -1
+              : Math.min(currentQueueIndex, nextQueue.length - 1);
           setCurrentQueueIndex(nextIndex);
           // Cue the transport to whatever track took the slot, so the progress
           // bar does not keep showing the removed track's length.
@@ -405,7 +435,7 @@ export default function App() {
 
       // Drop the id from manual playlists so nothing persists a dangling ref.
       const affected = playlists.filter(
-        (pl) => !pl.isSmart && pl.trackIds.includes(trackId)
+        (pl) => !pl.isSmart && pl.trackIds.includes(trackId),
       );
       if (affected.length > 0) {
         const updated = affected.map((pl) => ({
@@ -415,7 +445,7 @@ export default function App() {
         }));
         await Promise.all(updated.map((pl) => savePlaylist(pl)));
         setPlaylists((prev) =>
-          prev.map((pl) => updated.find((u) => u.id === pl.id) ?? pl)
+          prev.map((pl) => updated.find((u) => u.id === pl.id) ?? pl),
         );
       }
 
@@ -425,20 +455,20 @@ export default function App() {
         setShowInspectorModal(false);
       }
     },
-    [tracks, queue, currentQueueIndex, playlists, inspectedTrack]
+    [tracks, queue, currentQueueIndex, playlists, inspectedTrack],
   );
 
   const handleUpdateLyrics = async (
     trackId: string,
     lyrics: SyncedLyricLine[],
-    rawLrc: string
+    rawLrc: string,
   ) => {
     await updateTrack(trackId, { lyrics, rawLrc });
     setTracks((prev) =>
-      prev.map((t) => (t.id === trackId ? { ...t, lyrics, rawLrc } : t))
+      prev.map((t) => (t.id === trackId ? { ...t, lyrics, rawLrc } : t)),
     );
     setQueue((prev) =>
-      prev.map((t) => (t.id === trackId ? { ...t, lyrics, rawLrc } : t))
+      prev.map((t) => (t.id === trackId ? { ...t, lyrics, rawLrc } : t)),
     );
   };
 
@@ -447,11 +477,13 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement;
       const isInput =
-        activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement;
+        activeEl instanceof HTMLInputElement ||
+        activeEl instanceof HTMLTextAreaElement;
 
       // Escape closes modals or lyrics
-      if (e.key === 'Escape') {
-        if (showEqualizerModal) setShowEqualizerModal(false);
+      if (e.key === "Escape") {
+        if (showNavigation) setShowNavigation(false);
+        else if (showEqualizerModal) setShowEqualizerModal(false);
         else if (showInspectorModal) setShowInspectorModal(false);
         else if (showSmartPlaylistModal) setShowSmartPlaylistModal(false);
         else if (showShortcutsModal) setShowShortcutsModal(false);
@@ -467,87 +499,90 @@ export default function App() {
       const isAlt = e.altKey;
 
       // Space: Play / Pause
-      if (e.code === 'Space') {
+      if (e.code === "Space") {
         e.preventDefault();
         handlePlayPause();
       }
       // ⌘ + → : Next track
-      else if (isCmdOrCtrl && e.key === 'ArrowRight') {
+      else if (isCmdOrCtrl && e.key === "ArrowRight") {
         e.preventDefault();
         handleNextTrack();
       }
       // ⌘ + ← : Previous track
-      else if (isCmdOrCtrl && e.key === 'ArrowLeft') {
+      else if (isCmdOrCtrl && e.key === "ArrowLeft") {
         e.preventDefault();
         handlePrevTrack();
       }
       // ⌥ + → : Seek forward 5s
-      else if (isAlt && e.key === 'ArrowRight') {
+      else if (isAlt && e.key === "ArrowRight") {
         e.preventDefault();
         handleSeek(Math.min(duration, currentTime + 5));
       }
       // ⌥ + ← : Seek backward 5s
-      else if (isAlt && e.key === 'ArrowLeft') {
+      else if (isAlt && e.key === "ArrowLeft") {
         e.preventDefault();
         handleSeek(Math.max(0, currentTime - 5));
       }
       // ⌘ + ↑ : Volume up
-      else if (isCmdOrCtrl && e.key === 'ArrowUp') {
+      else if (isCmdOrCtrl && e.key === "ArrowUp") {
         e.preventDefault();
         handleSetVolume(Math.min(1, audioSettings.volume + 0.05));
       }
       // ⌘ + ↓ : Volume down
-      else if (isCmdOrCtrl && e.key === 'ArrowDown') {
+      else if (isCmdOrCtrl && e.key === "ArrowDown") {
         e.preventDefault();
         handleSetVolume(Math.max(0, audioSettings.volume - 0.05));
       }
       // ⌘ + M : Mute
-      else if (isCmdOrCtrl && (e.key === 'm' || e.key === 'M')) {
+      else if (isCmdOrCtrl && (e.key === "m" || e.key === "M")) {
         e.preventDefault();
         handleToggleMute();
       }
       // ⌘ + S : Toggle Shuffle
-      else if (isCmdOrCtrl && (e.key === 's' || e.key === 'S')) {
+      else if (isCmdOrCtrl && (e.key === "s" || e.key === "S")) {
         e.preventDefault();
         handleToggleShuffle();
       }
       // ⌘ + R : Cycle Repeat mode (prevent browser page reload)
-      else if (isCmdOrCtrl && (e.key === 'r' || e.key === 'R')) {
+      else if (isCmdOrCtrl && (e.key === "r" || e.key === "R")) {
         e.preventDefault();
         handleCycleRepeat();
       }
       // ⌘ + L : Toggle Synced Lyrics view
-      else if (isCmdOrCtrl && (e.key === 'l' || e.key === 'L')) {
+      else if (isCmdOrCtrl && (e.key === "l" || e.key === "L")) {
         e.preventDefault();
         setShowLyrics((prev) => !prev);
       }
       // ⌘ + E : Toggle Equalizer
-      else if (isCmdOrCtrl && (e.key === 'e' || e.key === 'E')) {
+      else if (isCmdOrCtrl && (e.key === "e" || e.key === "E")) {
         e.preventDefault();
         setShowEqualizerModal((prev) => !prev);
       }
       // ⌘ + F or '/' : Search library
-      else if ((isCmdOrCtrl && (e.key === 'f' || e.key === 'F')) || e.key === '/') {
+      else if (
+        (isCmdOrCtrl && (e.key === "f" || e.key === "F")) ||
+        e.key === "/"
+      ) {
         e.preventDefault();
         searchInputRef.current?.focus();
       }
       // F or ⌘ + Enter : Fullscreen
       else if (
-        (!isCmdOrCtrl && !isAlt && (e.key === 'f' || e.key === 'F')) ||
-        (isCmdOrCtrl && e.key === 'Enter')
+        (!isCmdOrCtrl && !isAlt && (e.key === "f" || e.key === "F")) ||
+        (isCmdOrCtrl && e.key === "Enter")
       ) {
         e.preventDefault();
         toggleFullscreen();
       }
       // '?' : Shortcuts
-      else if (e.key === '?') {
+      else if (e.key === "?") {
         e.preventDefault();
         setShowShortcutsModal(true);
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
     handlePlayPause,
     handleNextTrack,
@@ -562,15 +597,14 @@ export default function App() {
     showSmartPlaylistModal,
     showShortcutsModal,
     showQueue,
+    showNavigation,
   ]);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(() => {});
-      setIsFullscreen(true);
     } else {
       document.exitFullscreen().catch(() => {});
-      setIsFullscreen(false);
     }
   };
 
@@ -581,8 +615,8 @@ export default function App() {
 
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
-      const ext = file.name.split('.').pop()?.toLowerCase();
-      if (ext === 'lrc' || ext === 'txt') {
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      if (ext === "lrc" || ext === "txt") {
         lrcFiles.push(file);
       } else {
         audioFiles.push(file);
@@ -599,18 +633,20 @@ export default function App() {
         const fullTrack: Track = {
           id: trackId,
           title: metadata.title || file.name,
-          artist: metadata.artist || 'Local Master',
-          album: metadata.album || 'Hi-Res Library',
+          artist: metadata.artist || "Local Master",
+          album: metadata.album || "Hi-Res Library",
           duration: metadata.duration || 180,
-          format: (metadata.format as AudioFormat) || 'FLAC',
+          format: (metadata.format as AudioFormat) || "FLAC",
           sampleRate: metadata.sampleRate || 96000,
           bitDepth: metadata.bitDepth || 24,
           channels: metadata.channels || 2,
           bitrate: metadata.bitrate || 2822,
-          genre: metadata.genre || 'Lossless',
+          genre: metadata.genre || "Lossless",
           coverArtUrl:
             metadata.coverArtUrl ||
-            INITIAL_DEMO_TRACKS[Math.floor(Math.random() * INITIAL_DEMO_TRACKS.length)].coverArtUrl,
+            INITIAL_DEMO_TRACKS[
+              Math.floor(Math.random() * INITIAL_DEMO_TRACKS.length)
+            ].coverArtUrl,
           audioBlob: file,
           playCount: 0,
           dateAdded: Date.now(),
@@ -620,9 +656,9 @@ export default function App() {
         };
 
         // Check if there is an accompanying LRC file matching this track's name
-        const baseName = file.name.replace(/\.[^/.]+$/, '').toLowerCase();
+        const baseName = file.name.replace(/\.[^/.]+$/, "").toLowerCase();
         const matchingLrc = lrcFiles.find((lf) =>
-          lf.name.toLowerCase().includes(baseName)
+          lf.name.toLowerCase().includes(baseName),
         );
         if (matchingLrc) {
           const lrcText = await matchingLrc.text();
@@ -634,7 +670,7 @@ export default function App() {
         await saveTrack(fullTrack);
         newTracks.push(fullTrack);
       } catch (err) {
-        console.error('Failed to parse dropped audio file:', file.name, err);
+        console.error("Failed to parse dropped audio file:", file.name, err);
       }
     }
 
@@ -670,19 +706,21 @@ export default function App() {
         }
       }
     } else {
-      if (currentView === 'hires') {
+      if (currentView === "hires") {
         list = tracks.filter((t) => t.isHiRes);
-      } else if (currentView === 'favorites') {
+      } else if (currentView === "favorites") {
         list = tracks.filter((t) => t.isFavorite);
       }
     }
 
     // Format Filter Pills
-    if (formatFilter !== 'all') {
-      if (formatFilter === 'hires') {
+    if (formatFilter !== "all") {
+      if (formatFilter === "hires") {
         list = list.filter((t) => t.isHiRes);
       } else {
-        list = list.filter((t) => t.format.toLowerCase() === formatFilter.toLowerCase());
+        list = list.filter(
+          (t) => t.format.toLowerCase() === formatFilter.toLowerCase(),
+        );
       }
     }
 
@@ -695,7 +733,7 @@ export default function App() {
           t.artist.toLowerCase().includes(q) ||
           t.album.toLowerCase().includes(q) ||
           t.genre.toLowerCase().includes(q) ||
-          t.format.toLowerCase().includes(q)
+          t.format.toLowerCase().includes(q),
       );
     }
 
@@ -710,7 +748,9 @@ export default function App() {
     setShuffle(shuffleMode);
     setShuffleHistory([]);
 
-    const startIndex = shuffleMode ? Math.floor(Math.random() * targetTracks.length) : 0;
+    const startIndex = shuffleMode
+      ? Math.floor(Math.random() * targetTracks.length)
+      : 0;
     // Goes through playTrackAtIndex so the blob is hydrated from IndexedDB and
     // the play count is recorded, same as any other playback entry point.
     playTrackAtIndex(startIndex, targetTracks);
@@ -748,7 +788,7 @@ export default function App() {
     setPlaylists((prev) => prev.filter((p) => p.id !== id));
     if (selectedPlaylistId === id) {
       setSelectedPlaylistId(null);
-      setCurrentView('all');
+      setCurrentView("all");
     }
   };
 
@@ -756,68 +796,113 @@ export default function App() {
   const getViewTitle = () => {
     if (selectedPlaylistId) {
       const pl = playlists.find((p) => p.id === selectedPlaylistId);
-      return pl?.name || 'Playlist';
+      return pl?.name || "Playlist";
     }
-    if (currentView === 'hires') return 'Hi-Res Lossless Masters';
-    if (currentView === 'favorites') return 'Audiophile Favorites';
-    if (currentView === 'albums') return 'Albums Library';
-    return 'Music Library';
+    if (currentView === "hires") return "A higher kind of listening.";
+    if (currentView === "favorites") return "Always on repeat.";
+    if (currentView === "albums") return "Albums";
+    return "All your music.\nOne happy place.";
   };
 
   const getViewSubtitle = () => {
     if (selectedPlaylistId) {
       const pl = playlists.find((p) => p.id === selectedPlaylistId);
-      return pl?.description || 'Custom auto-filtered lossless audio selection';
+      return pl?.description || "A collection that moves with your taste.";
     }
-    if (currentView === 'hires')
-      return 'Lossless studio masters (FLAC, WAV, DSD, ALAC) with 24-bit/96kHz+ resolution';
-    if (currentView === 'favorites')
-      return 'Starred reference tracks for critical listening and acoustic testing';
-    return 'Complete offline collection stored locally in browser IndexedDB';
+    if (currentView === "hires")
+      return "More detail, more feeling. Explore your hi-res collection.";
+    if (currentView === "favorites")
+      return "The tracks you come back to, again and again.";
+    return "Old favorites, new discoveries. All right here, all yours.";
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0a0c12] text-white">
-      {/* 1. Authentic macOS Title Bar with Window Controls */}
-      <MacTitleBar
-        currentTrack={currentTrack}
+    <div className="app-shell">
+      <AppHeader
+        onOpenNavigation={() => setShowNavigation(true)}
         onOpenEqualizer={() => setShowEqualizerModal(true)}
         onOpenShortcuts={() => setShowShortcutsModal(true)}
-        onOpenInspector={() => {
-          if (currentTrack) {
-            setInspectedTrack(currentTrack);
-            setShowInspectorModal(true);
-          }
-        }}
         showVisualizer={showVisualizer}
         onToggleVisualizer={() => setShowVisualizer((prev) => !prev)}
-        isFullscreen={isFullscreen}
-        onToggleFullscreen={toggleFullscreen}
       />
 
       {/* 2. Main Body Split-View */}
-      <div className="flex flex-1 overflow-hidden relative">
-        {/* macOS Left Navigation Sidebar */}
-        <Sidebar
-          currentView={currentView}
-          selectedPlaylistId={selectedPlaylistId}
-          onSelectView={(v) => {
-            setCurrentView(v);
-            setSelectedPlaylistId(null);
-          }}
-          onSelectPlaylist={(pId) => {
-            setSelectedPlaylistId(pId);
-          }}
-          playlists={playlists}
-          tracks={tracks}
-          onOpenCreateSmartPlaylist={() => setShowSmartPlaylistModal(true)}
-          onAutoGenerateSmartPlaylists={handleAutoGenerateSmartPlaylists}
-          onTriggerFileInput={() => fileInputRef.current?.click()}
-          onDeletePlaylist={handleDeletePlaylist}
-        />
+      <div className="app-body">
+        {/* Collection navigation */}
+        <div className="desktop-sidebar">
+          <Sidebar
+            currentView={currentView}
+            selectedPlaylistId={selectedPlaylistId}
+            onSelectView={(v) => {
+              setCurrentView(v);
+              setSelectedPlaylistId(null);
+              setShowNavigation(false);
+              setShowLyrics(false);
+            }}
+            onSelectPlaylist={(pId) => {
+              setSelectedPlaylistId(pId);
+              setShowNavigation(false);
+              setShowLyrics(false);
+            }}
+            playlists={playlists}
+            tracks={tracks}
+            onOpenCreateSmartPlaylist={() => {
+              setShowNavigation(false);
+              setShowSmartPlaylistModal(true);
+            }}
+            onAutoGenerateSmartPlaylists={handleAutoGenerateSmartPlaylists}
+            onTriggerFileInput={() => {
+              setShowNavigation(false);
+              fileInputRef.current?.click();
+            }}
+            onDeletePlaylist={handleDeletePlaylist}
+          />
+        </div>
+        {showNavigation && (
+          <Dialog
+            label="Your music library"
+            onClose={() => setShowNavigation(false)}
+            className="navigation-dialog"
+          >
+            <button
+              className="icon-button navigation-close"
+              onClick={() => setShowNavigation(false)}
+              aria-label="Close library menu"
+            >
+              <X size={21} />
+            </button>
+            <Sidebar
+              currentView={currentView}
+              selectedPlaylistId={selectedPlaylistId}
+              onSelectView={(v) => {
+                setCurrentView(v);
+                setSelectedPlaylistId(null);
+                setShowNavigation(false);
+                setShowLyrics(false);
+              }}
+              onSelectPlaylist={(pId) => {
+                setSelectedPlaylistId(pId);
+                setShowNavigation(false);
+                setShowLyrics(false);
+              }}
+              playlists={playlists}
+              tracks={tracks}
+              onOpenCreateSmartPlaylist={() => {
+                setShowNavigation(false);
+                setShowSmartPlaylistModal(true);
+              }}
+              onAutoGenerateSmartPlaylists={handleAutoGenerateSmartPlaylists}
+              onTriggerFileInput={() => {
+                setShowNavigation(false);
+                fileInputRef.current?.click();
+              }}
+              onDeletePlaylist={handleDeletePlaylist}
+            />
+          </Dialog>
+        )}
 
         {/* Center Content: Either Synced Lyrics View or Main Track List */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+        <main className="main-content">
           {showLyrics ? (
             <SyncedLyricsView
               currentTrack={currentTrack}
@@ -853,13 +938,13 @@ export default function App() {
 
           {/* Real-time Spectrum Visualizer Bar (pinned right above player bar) */}
           {showVisualizer && (
-            <div className="h-10 bg-black/40 border-t border-white/[0.04] px-4 flex items-center justify-between shrink-0 select-none">
+            <div className="visualizer-strip">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
-                  REALTIME FFT SPECTRUM
+                <span className="text-[10px] font-mono uppercase tracking-wider text-stone-500">
+                  A LITTLE SOUND IN MOTION
                 </span>
-                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">
-                  {audioSettings.isSpatialAudioEnabled ? 'Binaural 3D' : 'Stereo 2.0'}
+                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-500 border border-sky-500/20">
+                  {audioSettings.isSpatialAudioEnabled ? "Spatial" : "Stereo"}
                 </span>
               </div>
 
@@ -871,17 +956,17 @@ export default function App() {
                 />
               </div>
 
-              <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-400">
+              <div className="flex items-center gap-1.5 text-[10px] font-mono text-stone-500">
                 <button
                   onClick={() =>
                     setAudioSettings((prev) => ({
                       ...prev,
                       visualizerMode:
-                        prev.visualizerMode === 'spectrum'
-                          ? 'waveform'
-                          : prev.visualizerMode === 'waveform'
-                          ? 'circular'
-                          : 'spectrum',
+                        prev.visualizerMode === "spectrum"
+                          ? "waveform"
+                          : prev.visualizerMode === "waveform"
+                            ? "circular"
+                            : "spectrum",
                     }))
                   }
                   className="hover:text-white transition-colors cursor-pointer capitalize"
@@ -901,7 +986,11 @@ export default function App() {
           queue={queue}
           currentIndex={currentQueueIndex}
           onPlayTrackAtIndex={playTrackAtIndex}
-          onClearQueue={() => setQueue(currentTrack ? [currentTrack] : [])}
+          onClearQueue={() => {
+            setQueue(currentTrack ? [currentTrack] : []);
+            setCurrentQueueIndex(currentTrack ? 0 : -1);
+            setShuffleHistory([]);
+          }}
           onShuffleQueue={() => {
             const upNext = queue.slice(currentQueueIndex + 1);
             const shuffled = [...upNext].sort(() => Math.random() - 0.5);
@@ -910,7 +999,7 @@ export default function App() {
         />
       </div>
 
-      {/* 3. Bottom HiFi Playback Controller Dock */}
+      {/* Persistent playback controls */}
       <PlayerBottomBar
         currentTrack={currentTrack}
         isPlaying={isPlaying}
@@ -944,6 +1033,51 @@ export default function App() {
         onToggleFavorite={handleToggleFavorite}
       />
 
+      <nav className="mobile-navigation" aria-label="Main navigation">
+        <button
+          className={
+            currentView === "all" && !selectedPlaylistId ? "selected" : ""
+          }
+          onClick={() => {
+            setCurrentView("all");
+            setSelectedPlaylistId(null);
+            setShowLyrics(false);
+          }}
+        >
+          <Music2 size={21} />
+          <span>Library</span>
+        </button>
+        <button
+          className={
+            currentView === "favorites" && !selectedPlaylistId ? "selected" : ""
+          }
+          onClick={() => {
+            setCurrentView("favorites");
+            setSelectedPlaylistId(null);
+            setShowLyrics(false);
+          }}
+        >
+          <Heart size={21} />
+          <span>Favorites</span>
+        </button>
+        <button
+          className={selectedPlaylistId ? "selected" : ""}
+          onClick={() => setShowNavigation(true)}
+        >
+          <ListMusic size={21} />
+          <span>Playlists</span>
+        </button>
+        <button
+          onClick={() => {
+            setShowLyrics(false);
+            requestAnimationFrame(() => searchInputRef.current?.focus());
+          }}
+        >
+          <Search size={21} />
+          <span>Search</span>
+        </button>
+      </nav>
+
       {/* Hidden File Input for Audio & LRC Uploads */}
       <input
         ref={fileInputRef}
@@ -953,6 +1087,7 @@ export default function App() {
         onChange={(e) => {
           if (e.target.files && e.target.files.length > 0) {
             handleFiles(e.target.files);
+            e.target.value = "";
           }
         }}
         className="hidden"

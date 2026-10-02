@@ -7,7 +7,7 @@
  *
  * Bump CACHE_VERSION to retire every previously cached response.
  */
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v3';
 const CACHE_NAME = `highfi-${CACHE_VERSION}`;
 const APP_SHELL = '/index.html';
 
