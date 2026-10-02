@@ -1,6 +1,5 @@
 import React from "react";
 import {
-  AudioLines,
   Clock3,
   Disc3,
   FolderOpen,
@@ -13,6 +12,7 @@ import {
 } from "lucide-react";
 import { Playlist } from "../types/music";
 import { cx } from "./ui";
+import { AppLogo } from "./AppLogo";
 import type { Route } from "../App";
 
 interface SidebarProps {
@@ -53,9 +53,7 @@ export function Sidebar({
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r border-line bg-surface md:flex lg:w-64" aria-label="Library">
       <div className="flex h-16 items-center gap-2.5 px-5">
-        <span className="grid size-8 place-items-center rounded-lg bg-accent text-accent-fg transition-colors">
-          <AudioLines size={18} strokeWidth={2.4} />
-        </span>
+        <AppLogo className="size-8 ring-1 ring-line" />
         <span className="text-[17px] font-bold tracking-tight">HighFi</span>
       </div>
 

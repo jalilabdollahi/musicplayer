@@ -55,7 +55,7 @@ export function InstallGate({
       />
       <div className="pt-safe pb-safe relative mx-auto flex min-h-full max-w-md flex-col items-center px-6 py-10 text-center">
         <div className="flex flex-1 flex-col items-center justify-center">
-          <img src="/icon-512.png" alt="" className="size-24 rounded-[28px] shadow-2xl shadow-black/60" />
+          <img src="/icon-512.png?v=2" alt="" className="size-24 rounded-[28px] shadow-2xl shadow-black/60" />
           <h1 className="mt-7 text-3xl font-bold tracking-tight">{installed ? "HighFi is installed" : "Install HighFi"}</h1>
           <p className="mt-2 text-[15px] text-muted text-balance">
             {installed
