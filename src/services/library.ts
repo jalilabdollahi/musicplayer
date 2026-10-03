@@ -28,13 +28,16 @@ export function newTrackId(): string {
   return `track-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/** Opens the system folder picker. Resolves null if the user cancels. */
-export async function pickFolder(): Promise<FileSystemDirectoryHandle | null> {
+/**
+ * Opens the system folder picker. Resolves null if the user cancels.
+ * `startIn` opens it on a known folder (used to re-pick a linked one).
+ */
+export async function pickFolder(startIn?: FileSystemDirectoryHandle): Promise<FileSystemDirectoryHandle | null> {
   try {
     const picker = (window as unknown as {
-      showDirectoryPicker(o: { id?: string; mode?: 'read' }): Promise<FileSystemDirectoryHandle>;
+      showDirectoryPicker(o: { id?: string; mode?: 'read'; startIn?: FileSystemHandle }): Promise<FileSystemDirectoryHandle>;
     }).showDirectoryPicker;
-    return await picker({ id: 'music', mode: 'read' });
+    return await picker(startIn ? { mode: 'read', startIn } : { id: 'music', mode: 'read' });
   } catch (err) {
     if ((err as DOMException)?.name === 'AbortError') return null;
     throw err;

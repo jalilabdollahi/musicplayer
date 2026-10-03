@@ -176,6 +176,9 @@ export default function App() {
   const [folderAccess, setFolderAccess] = useState<Record<string, boolean>>({});
   // Linked folders that are granted but can't be opened (moved, renamed, deleted).
   const [folderMissing, setFolderMissing] = useState<Record<string, boolean>>({});
+  // Folders whose permission request failed: on Android a stored folder often
+  // can't be re-granted, only picked again.
+  const [relinkNeeded, setRelinkNeeded] = useState<Record<string, boolean>>({});
   const [scanning, setScanning] = useState(false);
   const [storage, setStorage] = useState<{ usage: number; quota: number } | null>(null);
 
@@ -758,11 +761,39 @@ export default function App() {
     }
   };
 
+  /** Picks the same folder again and swaps in the fresh handle; the library is kept. */
+  const relinkFolder = async (folder: LinkedFolder) => {
+    let picked: FileSystemDirectoryHandle | null;
+    try {
+      picked = await pickFolder(folder.handle);
+    } catch {
+      // Some builds reject startIn for a handle that lost permission.
+      picked = await pickFolder().catch(() => null);
+    }
+    if (!picked) return;
+    const same = (await picked.isSameEntry(folder.handle).catch(() => false)) || picked.name === folder.name;
+    if (!same) {
+      showToast({ text: `That's “${picked.name}”. Choose “${folder.name}” to reconnect it, or link “${picked.name}” from Add music.` }, 7000);
+      return;
+    }
+    const relinked = { ...folder, handle: picked };
+    await saveFolder(relinked);
+    setFolders((prev) => prev.map((f) => (f.id === folder.id ? relinked : f)));
+    setFolderAccess((prev) => ({ ...prev, [folder.id]: true }));
+    setRelinkNeeded((prev) => ({ ...prev, [folder.id]: false }));
+    runScan(relinked, true);
+  };
+
+  /**
+   * Asks the browser to restore access to a stored folder. When that isn't
+   * possible (common on Android), the next tap re-picks the folder instead.
+   */
   const reconnectFolder = async (folder: LinkedFolder) => {
+    if (relinkNeeded[folder.id]) return relinkFolder(folder);
     const granted = await ensureFolderPermission(folder.handle, true);
     setFolderAccess((prev) => ({ ...prev, [folder.id]: granted }));
     if (granted) runScan(folder, true);
-    else showToast({ text: `Access to “${folder.name}” wasn't granted. Choose “Allow” in the browser prompt to play its songs.` }, 6000);
+    else setRelinkNeeded((prev) => ({ ...prev, [folder.id]: true }));
   };
 
   const unlinkFolder = async (folder: LinkedFolder) => {
@@ -1311,14 +1342,20 @@ export default function App() {
                 <TriangleAlert size={18} className="shrink-0 text-amber-300" />
                 <div className="min-w-0 flex-1 text-sm">
                   <p>
-                    {disconnected.length === 1
-                      ? `“${disconnected[0].name}” needs permission again to play.`
-                      : `${disconnected.length} folders need permission again to play.`}
+                    {relinkNeeded[disconnected[0].id]
+                      ? `Choose “${disconnected[0].name}” again to keep playing it.`
+                      : disconnected.length === 1
+                        ? `“${disconnected[0].name}” needs permission again to play.`
+                        : `${disconnected.length} folders need permission again to play.`}
                   </p>
                   <p className="mt-0.5 text-[13px] text-fg/60">
-                    {isStandalone()
-                      ? "Allow access once and the installed app keeps it."
-                      : "In Chrome's prompt, choose “Allow on every visit” so HighFi doesn't ask again."}
+                    {relinkNeeded[disconnected[0].id]
+                      ? "The folder picker opens on it. Tap “Use this folder”. Nothing is copied and your library stays as it is."
+                      : /Android/.test(navigator.userAgent)
+                        ? "Android doesn't keep folder access after the app closes, so it asks again."
+                        : isStandalone()
+                          ? "Allow access once and the installed app keeps it."
+                          : "In Chrome's prompt, choose “Allow on every visit” so HighFi doesn't ask again."}
                   </p>
                 </div>
                 {/* Browsers grant one folder per click, so reconnect them one at a time. */}
@@ -1330,7 +1367,11 @@ export default function App() {
                   }}
                   className="h-8 max-w-full shrink-0 truncate rounded-full bg-amber-300 px-4 text-[13px] font-semibold text-black hover:bg-amber-200"
                 >
-                  {disconnected.length === 1 ? "Reconnect" : `Reconnect “${disconnected[0].name}”`}
+                  {relinkNeeded[disconnected[0].id]
+                    ? "Choose folder"
+                    : disconnected.length === 1
+                      ? "Reconnect"
+                      : `Reconnect “${disconnected[0].name}”`}
                 </button>
               </div>
             )}
