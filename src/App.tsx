@@ -4,7 +4,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Disc3, FolderOpen, Library, ListMusic, Music2, Plus, Trash2, TriangleAlert, Upload, Users } from "lucide-react";
+import { Disc3, Folder, FolderOpen, Library, ListMusic, Music2, Plus, Trash2, TriangleAlert, Upload, Users } from "lucide-react";
 import { AudioEngineSettings, LinkedFolder, Playlist, RepeatMode, SyncedLyricLine, Track } from "./types/music";
 import { audioEngine } from "./services/audioEngine";
 import {
@@ -50,11 +50,17 @@ import { SmartPlaylistModal } from "./components/SmartPlaylistModal";
 import { ShortcutsModal } from "./components/ShortcutsModal";
 import { AddMusicModal } from "./components/AddMusicModal";
 import { AppLogo } from "./components/AppLogo";
-import { InstallButton, InstallHelpModal, useInstallPrompt } from "./components/InstallPrompt";
+import { InstallButton, InstallHelpModal, isStandalone, useInstallPrompt } from "./components/InstallPrompt";
 import { InstallGate, installGateDismissed } from "./components/InstallGate";
 import {
   Album,
   AlbumGrid,
+  Breadcrumbs,
+  FolderGrid,
+  FolderNode,
+  IMPORTED_SOURCE,
+  folderContents,
+  tracksInSource,
   ArtistGrid,
   EmptyState,
   PageHeader,
@@ -81,6 +87,9 @@ export type Route =
   | { kind: "recent" }
   | { kind: "playlist"; id: string }
   | { kind: "playlists" }
+  | { kind: "folders" }
+  /** A folder inside a source: a linked folder id or IMPORTED_SOURCE; path "" is its root. */
+  | { kind: "folder"; source: string; path: string }
   | { kind: "sources" };
 
 // ---------------------------------------------------------------- Session persistence
@@ -740,6 +749,7 @@ export default function App() {
     const granted = await ensureFolderPermission(folder.handle, true);
     setFolderAccess((prev) => ({ ...prev, [folder.id]: granted }));
     if (granted) runScan(folder, true);
+    else showToast({ text: `Access to “${folder.name}” wasn't granted. Choose “Allow” in the browser prompt to play its songs.` }, 6000);
   };
 
   const unlinkFolder = async (folder: LinkedFolder) => {
@@ -855,7 +865,7 @@ export default function App() {
       } else if ((mod && key === "f") || e.key === "/") {
         handled();
         setNowPlaying(null);
-        if (!["songs", "albums", "artists", "favorites", "recent", "playlist"].includes(route.kind)) navigate({ kind: "songs" });
+        if (!["songs", "albums", "artists", "favorites", "recent", "playlist", "folder"].includes(route.kind)) navigate({ kind: "songs" });
         requestAnimationFrame(() => searchRef.current?.focus());
       } else if (e.key === "?") {
         handled();
@@ -1074,6 +1084,7 @@ export default function App() {
               recentCount={Math.min(tracks.length, 300)}
               onOpenFavorites={() => navigate({ kind: "favorites" })}
               onOpenRecent={() => navigate({ kind: "recent" })}
+              onOpenFolders={() => navigate({ kind: "folders" })}
               onOpenPlaylist={(id) => navigate({ kind: "playlist", id })}
               onCreate={() => setShowSmartPlaylist(true)}
               onOpenSources={() => navigate({ kind: "sources" })}
@@ -1081,6 +1092,102 @@ export default function App() {
             />
           </>
         );
+
+      case "folders": {
+        const sources: FolderNode[] = [
+          ...folders.map((f) => {
+            const list = tracksInSource(tracks, f.id);
+            return { key: f.id, name: f.name, path: "", tracks: list, cover: list.find((t) => t.coverArtUrl)?.coverArtUrl };
+          }),
+          ...(() => {
+            const imported = tracksInSource(tracks, IMPORTED_SOURCE);
+            return imported.length
+              ? [{ key: IMPORTED_SOURCE, name: "Imported", path: "", tracks: imported, cover: imported.find((t) => t.coverArtUrl)?.coverArtUrl }]
+              : [];
+          })(),
+        ];
+        return (
+          <>
+            <PageHeader title="Folders" meta={`${sources.length} ${sources.length === 1 ? "source" : "sources"}`} />
+            <div className="h-4" />
+            {sources.length ? (
+              <FolderGrid
+                folders={sources}
+                onOpen={(f) => navigate({ kind: "folder", source: f.key, path: "" })}
+                onPlay={(f) => playList(folderContents(f.tracks, "").all)}
+                badge={(f) =>
+                  folderAccess[f.key] === false ? (
+                    <span className="inline-flex items-center gap-1 text-amber-300">
+                      · <TriangleAlert size={12} /> needs access
+                    </span>
+                  ) : null
+                }
+              />
+            ) : (
+              <EmptyState icon={<Folder size={24} />} title="No folders yet" body="Link or import a folder and it shows up here." />
+            )}
+          </>
+        );
+      }
+
+      case "folder": {
+        const linked = folders.find((f) => f.id === route.source);
+        const sourceName = route.source === IMPORTED_SOURCE ? "Imported" : linked?.name;
+        if (!sourceName) return <EmptyState icon={<Folder size={24} />} title="Folder not found" body="It may have been unlinked." />;
+        const { all, subfolders, files } = folderContents(tracksInSource(tracks, route.source), route.path);
+        const segments = route.path ? route.path.split("/") : [];
+        const title = segments[segments.length - 1] ?? sourceName;
+        const openPath = (path: string | null) =>
+          navigate(path === null ? { kind: "folders" } : { kind: "folder", source: route.source, path });
+        const shownFiles = q ? all.filter((t) => matchesQuery(t, q)) : files;
+        return (
+          <>
+            <div className="px-4 pt-4 md:px-8 md:pt-8">
+              <Breadcrumbs
+                onOpen={openPath}
+                parts={[
+                  { label: "Folders", path: null },
+                  { label: sourceName, path: "" },
+                  ...segments.map((seg, i) => ({ label: seg, path: segments.slice(0, i + 1).join("/") })),
+                ]}
+              />
+            </div>
+            <div className="-mt-4 md:-mt-8">
+              <PageHeader
+                title={title}
+                eyebrow="Folder"
+                meta={
+                  all.length
+                    ? `${subfolders.length ? `${subfolders.length} ${subfolders.length === 1 ? "folder" : "folders"} · ` : ""}${all.length} ${all.length === 1 ? "song" : "songs"} · ${totalDuration(all)}`
+                    : undefined
+                }
+                actions={all.length ? <PlayActions onPlay={() => playList(all)} onShuffle={() => playList(all, 0, true)} /> : undefined}
+              />
+            </div>
+            {all.length === 0 ? (
+              <EmptyState icon={<Folder size={24} />} title="This folder is empty" body="No songs were found in it." />
+            ) : (
+              <>
+                <Toolbar query={query} onQuery={setQuery} placeholder={`Search ${title}`} searchRef={searchRef} />
+                {!q && subfolders.length > 0 && (
+                  <FolderGrid
+                    folders={subfolders}
+                    onOpen={(f) => openPath(f.path)}
+                    onPlay={(f) => playList(folderContents(f.tracks, f.path).all)}
+                  />
+                )}
+                {shownFiles.length > 0 && (
+                  <>
+                    {!q && subfolders.length > 0 && <h2 className="px-4 pb-1 text-xl font-bold tracking-tight md:px-8">Songs in this folder</h2>}
+                    {list(shownFiles)}
+                  </>
+                )}
+                {q && shownFiles.length === 0 && noMatches}
+              </>
+            )}
+          </>
+        );
+      }
 
       case "sources":
         return (
@@ -1110,7 +1217,7 @@ export default function App() {
     { label: "Songs", icon: <Music2 size={22} />, route: { kind: "songs" }, match: ["songs"] },
     { label: "Albums", icon: <Disc3 size={22} />, route: { kind: "albums" }, match: ["albums", "album"] },
     { label: "Artists", icon: <Users size={22} />, route: { kind: "artists" }, match: ["artists", "artist"] },
-    { label: "Library", icon: <Library size={22} />, route: { kind: "playlists" }, match: ["playlists", "playlist", "favorites", "recent", "sources"] },
+    { label: "Library", icon: <Library size={22} />, route: { kind: "playlists" }, match: ["playlists", "playlist", "favorites", "recent", "sources", "folders", "folder"] },
   ];
 
   const disconnected = folders.filter((f) => folderAccess[f.id] === false);
@@ -1168,16 +1275,26 @@ export default function App() {
             </div>
 
             {disconnected.length > 0 && route.kind !== "sources" && (
-              <div className="mx-4 mt-4 flex items-center gap-3 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 md:mx-8">
+              <div className="mx-4 mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 md:mx-8">
                 <TriangleAlert size={18} className="shrink-0 text-amber-300" />
-                <p className="min-w-0 flex-1 text-sm">
-                  {disconnected.length === 1 ? `“${disconnected[0].name}” needs` : `${disconnected.length} folders need`} permission again to play.
-                </p>
+                <div className="min-w-0 flex-1 text-sm">
+                  <p>
+                    {disconnected.length === 1
+                      ? `“${disconnected[0].name}” needs permission again to play.`
+                      : `${disconnected.length} folders need permission again to play.`}
+                  </p>
+                  <p className="mt-0.5 text-[13px] text-fg/60">
+                    {isStandalone()
+                      ? "Allow access once and the installed app keeps it."
+                      : "In Chrome's prompt, choose “Allow on every visit” so HighFi doesn't ask again."}
+                  </p>
+                </div>
+                {/* Browsers grant one folder per click, so reconnect them one at a time. */}
                 <button
-                  onClick={() => disconnected.forEach(reconnectFolder)}
-                  className="h-8 shrink-0 rounded-full bg-amber-300 px-4 text-[13px] font-semibold text-black hover:bg-amber-200"
+                  onClick={() => reconnectFolder(disconnected[0])}
+                  className="h-8 max-w-full shrink-0 truncate rounded-full bg-amber-300 px-4 text-[13px] font-semibold text-black hover:bg-amber-200"
                 >
-                  Reconnect
+                  {disconnected.length === 1 ? "Reconnect" : `Reconnect “${disconnected[0].name}”`}
                 </button>
               </div>
             )}

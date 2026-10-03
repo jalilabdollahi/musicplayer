@@ -2,7 +2,9 @@ import React from "react";
 import {
   ArrowDownUp,
   ChevronLeft,
+  ChevronRight,
   FileAudio,
+  Folder,
   FolderPlus,
   FolderSync,
   Heart,
@@ -87,6 +89,139 @@ export function groupArtists(tracks: Track[]): Artist[] {
       tracks: list,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// ---------------------------------------------------------------- Folders
+
+/** Pseudo source id for everything imported into the app. */
+export const IMPORTED_SOURCE = "imported";
+
+/** A track's path inside its source: relative to the linked folder, or as imported. */
+export function trackPath(t: Track): string {
+  return (t.source === "folder" ? t.relPath : t.filePath) || t.filePath || t.title;
+}
+
+export function tracksInSource(tracks: Track[], source: string): Track[] {
+  return source === IMPORTED_SOURCE ? tracks.filter((t) => t.source !== "folder") : tracks.filter((t) => t.folderId === source);
+}
+
+export interface FolderNode {
+  key: string;
+  name: string;
+  path: string;
+  /** Every track at or below this folder. */
+  tracks: Track[];
+  cover?: string;
+}
+
+const byName = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+
+/**
+ * One level of a source's folder tree: the subfolders directly under `path`
+ * and the songs sitting in it, plus everything below it for Play/Shuffle.
+ */
+export function folderContents(sourceTracks: Track[], path: string) {
+  const prefix = path ? `${path}/` : "";
+  const all = sourceTracks.filter((t) => trackPath(t).startsWith(prefix));
+  const sub = new Map<string, Track[]>();
+  const files: Track[] = [];
+  for (const t of all) {
+    const rest = trackPath(t).slice(prefix.length);
+    const slash = rest.indexOf("/");
+    if (slash < 0) files.push(t);
+    else {
+      const name = rest.slice(0, slash);
+      const list = sub.get(name);
+      if (list) list.push(t);
+      else sub.set(name, [t]);
+    }
+  }
+  const subfolders: FolderNode[] = [...sub.entries()]
+    .map(([name, list]) => ({
+      key: `${prefix}${name}`,
+      name,
+      path: `${prefix}${name}`,
+      tracks: list,
+      cover: list.find((t) => t.coverArtUrl)?.coverArtUrl,
+    }))
+    .sort((a, b) => byName(a.name, b.name));
+  files.sort((a, b) => byName(trackPath(a), trackPath(b)));
+  return { all: [...all].sort((a, b) => byName(trackPath(a), trackPath(b))), subfolders, files };
+}
+
+export function FolderGrid({
+  folders,
+  onOpen,
+  onPlay,
+  badge,
+}: {
+  folders: FolderNode[];
+  onOpen: (f: FolderNode) => void;
+  onPlay: (f: FolderNode) => void;
+  /** Optional per-folder status, e.g. a linked folder that needs permission. */
+  badge?: (f: FolderNode) => React.ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-x-4 gap-y-6 px-4 pt-2 pb-8 sm:grid-cols-3 md:px-8 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+      {folders.map((folder) => (
+        <div key={folder.key} className="group min-w-0">
+          <div className="relative">
+            <button onClick={() => onOpen(folder)} className="block w-full" aria-label={`Open folder ${folder.name}`}>
+              <Artwork
+                src={folder.cover}
+                seed={folder.name}
+                className="aspect-square w-full shadow-lg shadow-black/40 transition group-hover:brightness-90"
+                rounded="rounded-xl"
+                iconSize={40}
+              />
+              <span className="absolute top-2.5 left-2.5 grid size-8 place-items-center rounded-lg bg-black/55 text-white backdrop-blur-sm">
+                <Folder size={16} />
+              </span>
+            </button>
+            <button
+              onClick={() => onPlay(folder)}
+              aria-label={`Play folder ${folder.name}`}
+              className="absolute right-2.5 bottom-2.5 grid size-11 translate-y-1 place-items-center rounded-full bg-accent text-accent-fg opacity-0 shadow-xl shadow-black/50 transition group-hover:translate-y-0 group-hover:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100 hover:scale-105"
+            >
+              <Play size={18} fill="currentColor" className="ml-0.5" />
+            </button>
+          </div>
+          <button onClick={() => onOpen(folder)} className="mt-2.5 block w-full min-w-0 text-left">
+            <p className="truncate text-sm font-medium">{folder.name}</p>
+            <p className="mt-0.5 flex items-center gap-1.5 truncate text-[13px] text-muted">
+              {folder.tracks.length} {folder.tracks.length === 1 ? "song" : "songs"}
+              {badge?.(folder)}
+            </p>
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** "Music / Pop / Adele", each part clickable except the current folder. */
+export function Breadcrumbs({ parts, onOpen }: { parts: { label: string; path: string | null }[]; onOpen: (path: string | null) => void }) {
+  return (
+    <nav aria-label="Folder path" className="mb-3 flex flex-wrap items-center gap-1 text-sm text-muted">
+      {parts.map((part, i) => {
+        const last = i === parts.length - 1;
+        return (
+          <React.Fragment key={`${part.path}-${i}`}>
+            {i > 0 && <ChevronRight size={14} className="text-faint" />}
+            {last ? (
+              <span className="max-w-[16rem] truncate text-fg" aria-current="page">
+                {part.label}
+              </span>
+            ) : (
+              <button onClick={() => onOpen(part.path)} className="max-w-[12rem] truncate rounded hover:text-fg hover:underline">
+                {part.label}
+              </button>
+            )}
+          </React.Fragment>
+        );
+      })}
+    </nav>
+  );
 }
 
 // ---------------------------------------------------------------- Page chrome
@@ -312,6 +447,7 @@ export function PlaylistsIndex({
   recentCount,
   onOpenFavorites,
   onOpenRecent,
+  onOpenFolders,
   onOpenPlaylist,
   onCreate,
   onOpenSources,
@@ -322,6 +458,7 @@ export function PlaylistsIndex({
   recentCount: number;
   onOpenFavorites: () => void;
   onOpenRecent: () => void;
+  onOpenFolders: () => void;
   onOpenPlaylist: (id: string) => void;
   onCreate: () => void;
   onOpenSources: () => void;
@@ -341,6 +478,7 @@ export function PlaylistsIndex({
       <div className="mt-2 flex flex-col gap-1">
         <Row icon={<Heart size={22} fill="currentColor" />} tint="bg-accent/20 text-accent" title="Favorites" sub={`${favoritesCount} songs`} onClick={onOpenFavorites} />
         <Row icon={<Sparkles size={22} />} title="Recently added" sub={`${recentCount} songs`} onClick={onOpenRecent} />
+        <Row icon={<Folder size={22} />} title="Folders" sub="Browse songs folder by folder" onClick={onOpenFolders} />
         {playlists.map((pl) => (
           <Row
             key={pl.id}

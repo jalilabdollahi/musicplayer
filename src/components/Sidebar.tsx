@@ -3,6 +3,7 @@ import {
   Clock3,
   Disc3,
   FolderOpen,
+  Folders,
   Heart,
   ListMusic,
   Music2,
@@ -41,6 +42,7 @@ export function Sidebar({
     { route: { kind: "songs" }, label: "Songs", icon: <Music2 size={18} />, count: counts.songs },
     { route: { kind: "albums" }, label: "Albums", icon: <Disc3 size={18} /> },
     { route: { kind: "artists" }, label: "Artists", icon: <Users size={18} /> },
+    { route: { kind: "folders" }, label: "Folders", icon: <Folders size={18} /> },
     { route: { kind: "recent" }, label: "Recently added", icon: <Clock3 size={18} /> },
     { route: { kind: "favorites" }, label: "Favorites", icon: <Heart size={18} />, count: counts.favorites },
   ];
@@ -48,7 +50,8 @@ export function Sidebar({
   const isActive = (r: Route) =>
     r.kind === route.kind ||
     (r.kind === "albums" && route.kind === "album") ||
-    (r.kind === "artists" && route.kind === "artist");
+    (r.kind === "artists" && route.kind === "artist") ||
+    (r.kind === "folders" && route.kind === "folder");
 
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r border-line bg-surface md:flex lg:w-64" aria-label="Library">
