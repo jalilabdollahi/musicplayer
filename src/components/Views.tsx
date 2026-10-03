@@ -572,6 +572,8 @@ function SourceCard({ icon, title, body, onClick, primary }: { icon: React.React
 export interface FolderStatus {
   folder: LinkedFolder;
   granted: boolean;
+  /** Granted, but the folder itself can't be opened any more. */
+  missing: boolean;
   trackCount: number;
 }
 
@@ -628,26 +630,42 @@ export function SourcesView({
           </p>
         ) : (
           <ul className="mt-3 divide-y divide-line overflow-hidden rounded-xl border border-line bg-white/[0.03]">
-            {folders.map(({ folder, granted, trackCount }) => (
+            {folders.map(({ folder, granted, missing, trackCount }) => (
               <li key={folder.id} className="flex flex-wrap items-center gap-3 p-4">
                 <span
                   className={cx(
                     "grid size-10 shrink-0 place-items-center rounded-lg",
-                    granted ? "bg-accent/15 text-accent" : "bg-amber-400/15 text-amber-300",
+                    granted && !missing ? "bg-accent/15 text-accent" : "bg-amber-400/15 text-amber-300",
                   )}
                 >
-                  {granted ? <FolderSync size={19} /> : <TriangleAlert size={19} />}
+                  {granted && !missing ? <FolderSync size={19} /> : <TriangleAlert size={19} />}
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{folder.name}</p>
                   <p className="text-[13px] text-muted">
                     {trackCount} songs
-                    {granted
-                      ? folder.lastScanAt
-                        ? ` · scanned ${new Date(folder.lastScanAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
-                        : ""
-                      : " · access needs to be granted again"}
+                    {!granted
+                      ? " · access needs to be granted again"
+                      : missing
+                        ? " · can't be opened; it may have been moved or deleted. Unlink it and link it again."
+                        : folder.lastScanAt
+                          ? ` · scanned ${new Date(folder.lastScanAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
+                          : ""}
                   </p>
+                  {granted && !missing && folder.skipped && folder.skipped.length > 0 && (
+                    <details className="mt-1 text-[13px] text-amber-300/90">
+                      <summary className="cursor-pointer">
+                        {folder.skipped.length} {folder.skipped.length === 1 ? "item" : "items"} couldn't be read and {folder.skipped.length === 1 ? "was" : "were"} skipped
+                      </summary>
+                      <ul className="mt-1 max-h-32 overflow-y-auto font-mono text-xs text-muted">
+                        {folder.skipped.map((p) => (
+                          <li key={p} className="truncate">
+                            {p}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                 </div>
                 <div className="flex items-center gap-1">
                   {granted ? (

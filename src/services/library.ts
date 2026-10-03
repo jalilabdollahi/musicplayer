@@ -53,26 +53,51 @@ export async function ensureFolderPermission(
   try {
     if ((await h.queryPermission({ mode: 'read' })) === 'granted') return true;
     if (!request) return false;
-    return (await h.requestPermission({ mode: 'read' })) === 'granted';
+    // Two callers can ask at once (a click that both plays a song and
+    // triggers the reconnect); share one prompt instead of racing two.
+    let pending = pendingRequests.get(handle);
+    if (!pending) {
+      pending = h
+        .requestPermission({ mode: 'read' })
+        .then((state) => state === 'granted')
+        .catch(() => false)
+        .finally(() => pendingRequests.delete(handle));
+      pendingRequests.set(handle, pending);
+    }
+    return await pending;
   } catch {
     return false;
   }
 }
+
+const pendingRequests = new WeakMap<FileSystemDirectoryHandle, Promise<boolean>>();
 
 interface FoundFile {
   handle: FileSystemFileHandle;
   relPath: string;
 }
 
-async function walk(dir: FileSystemDirectoryHandle, prefix: string, out: FoundFile[]): Promise<void> {
-  for await (const entry of (dir as DirectoryIterable).values()) {
-    if (entry.name.startsWith('.')) continue;
-    const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.kind === 'directory') {
-      await walk(entry as FileSystemDirectoryHandle, relPath, out);
-    } else if (isAudioFileName(entry.name) || isLyricsFileName(entry.name)) {
-      out.push({ handle: entry as FileSystemFileHandle, relPath });
+/**
+ * Collects audio and lyrics files below `dir`. A subfolder that can't be
+ * read (system-protected, a cloud placeholder, removed mid-scan) is recorded
+ * in `skipped` and passed over, so one bad folder can't fail the whole scan.
+ * Errors on the linked folder itself still throw: that folder is unusable.
+ */
+async function walk(dir: FileSystemDirectoryHandle, prefix: string, out: FoundFile[], skipped: string[]): Promise<void> {
+  try {
+    for await (const entry of (dir as DirectoryIterable).values()) {
+      if (entry.name.startsWith('.')) continue;
+      const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.kind === 'directory') {
+        await walk(entry as FileSystemDirectoryHandle, relPath, out, skipped);
+      } else if (isAudioFileName(entry.name) || isLyricsFileName(entry.name)) {
+        out.push({ handle: entry as FileSystemFileHandle, relPath });
+      }
     }
+  } catch (err) {
+    if (!prefix) throw err;
+    console.warn('Skipping unreadable folder', prefix, err);
+    skipped.push(prefix);
   }
 }
 
@@ -98,6 +123,8 @@ export interface ScanResult {
   added: Track[];
   updated: Track[];
   removedIds: string[];
+  /** Folders and files that couldn't be read this time. */
+  skipped: string[];
 }
 
 /** Lyrics files sitting next to a track share its base name. */
@@ -116,7 +143,9 @@ export async function scanFolder(
   onProgress?: (p: ScanProgress) => void,
 ): Promise<ScanResult> {
   const found: FoundFile[] = [];
-  await walk(folder.handle, '', found);
+  const skippedDirs: string[] = [];
+  const skipped: string[] = [];
+  await walk(folder.handle, '', found, skippedDirs);
 
   const audio = found.filter((f) => isAudioFileName(f.relPath) && !folder.excluded?.includes(f.relPath));
   const lyrics = new Map(found.filter((f) => isLyricsFileName(f.relPath)).map((f) => [lrcKey(f.relPath), f.handle]));
@@ -162,14 +191,20 @@ export async function scanFolder(
       (previous ? updated : added).push(track);
     } catch (err) {
       console.warn('Skipping unreadable file', relPath, err);
+      skipped.push(relPath);
     } finally {
       done++;
       onProgress?.({ done, total: audio.length });
     }
   });
 
-  const removedIds = [...known.entries()].filter(([path]) => !seen.has(path!)).map(([, t]) => t.id);
-  return { added, updated, removedIds };
+  // Songs inside a folder that couldn't be read are kept: the folder is
+  // more likely unavailable for now than deleted.
+  const inSkippedDir = (path: string) => skippedDirs.some((dir) => path.startsWith(`${dir}/`));
+  const removedIds = [...known.entries()]
+    .filter(([path]) => !seen.has(path!) && !inSkippedDir(path!))
+    .map(([, t]) => t.id);
+  return { added, updated, removedIds, skipped: [...skippedDirs, ...skipped] };
 }
 
 /**

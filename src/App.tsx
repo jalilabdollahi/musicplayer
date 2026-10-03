@@ -172,7 +172,10 @@ export default function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [folders, setFolders] = useState<LinkedFolder[]>([]);
+  // false = the browser no longer grants access; true/undefined = readable.
   const [folderAccess, setFolderAccess] = useState<Record<string, boolean>>({});
+  // Linked folders that are granted but can't be opened (moved, renamed, deleted).
+  const [folderMissing, setFolderMissing] = useState<Record<string, boolean>>({});
   const [scanning, setScanning] = useState(false);
   const [storage, setStorage] = useState<{ usage: number; quota: number } | null>(null);
 
@@ -287,21 +290,31 @@ export default function App() {
         if (result.removedIds.length) await deleteTracks(result.removedIds);
         mergeTracks(changed, result.removedIds);
 
-        const scanned = { ...folder, lastScanAt: Date.now() };
+        const scanned = { ...folder, lastScanAt: Date.now(), skipped: result.skipped };
         await saveFolder(scanned);
         setFolders((prev) => prev.map((f) => (f.id === folder.id ? scanned : f)));
+        setFolderMissing((prev) => ({ ...prev, [folder.id]: false }));
 
         const parts = [
           result.added.length && `${result.added.length} new`,
           result.updated.length && `${result.updated.length} updated`,
           result.removedIds.length && `${result.removedIds.length} removed`,
+          result.skipped.length && `${result.skipped.length} couldn't be read`,
         ].filter(Boolean);
         if (!quiet || parts.length) showToast({ text: parts.length ? `“${folder.name}”: ${parts.join(", ")}` : `“${folder.name}” is up to date` });
         else setToast(null);
       } catch (err) {
         console.error("Folder scan failed", err);
-        showToast({ text: `Couldn't read “${folder.name}”. It may have been moved or renamed.` }, 6000);
-        setFolderAccess((prev) => ({ ...prev, [folder.id]: false }));
+        // Only call it a permission problem when the browser says so; a
+        // granted folder that won't open has been moved or deleted.
+        if (await ensureFolderPermission(folder.handle, false)) {
+          setFolderMissing((prev) => ({ ...prev, [folder.id]: true }));
+          showToast({ text: `Couldn't open “${folder.name}”. It may have been moved, renamed or deleted.` }, 6000);
+        } else {
+          setFolderAccess((prev) => ({ ...prev, [folder.id]: false }));
+          if (!quiet) showToast({ text: `HighFi no longer has access to “${folder.name}”. Reconnect it to keep playing its songs.` }, 6000);
+          else setToast(null);
+        }
       } finally {
         setScanning(false);
       }
@@ -809,6 +822,24 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
+  // Browsers only show the permission prompt in response to a click, so the
+  // first click anywhere asks for one disconnected folder (once per folder
+  // per session, so a "Don't allow" isn't followed by repeated prompts).
+  const autoAsked = useRef(new Set<string>());
+  useEffect(() => {
+    const next = folders.find((f) => folderAccess[f.id] === false && !autoAsked.current.has(f.id));
+    if (!next) return;
+    const onPointer = (e: PointerEvent) => {
+      if ((e.target as Element | null)?.closest?.("[data-reconnect]")) return; // the banner button asks itself
+      autoAsked.current.add(next.id);
+      reconnectFolder(next);
+    };
+    window.addEventListener("pointerdown", onPointer, { capture: true, once: true });
+    return () => window.removeEventListener("pointerdown", onPointer, { capture: true });
+    // reconnectFolder is recreated each render; the folder list and access drive this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folders, folderAccess]);
+
   // ---------------------------------------------------------------- Keyboard
 
   useEffect(() => {
@@ -1196,6 +1227,7 @@ export default function App() {
               folder,
               granted: folderAccess[folder.id] !== false,
               trackCount: tracks.filter((t) => t.folderId === folder.id).length,
+              missing: !!folderMissing[folder.id],
             }))}
             importedCount={tracks.filter((t) => t.source !== "folder").length}
             storage={storage}
@@ -1291,7 +1323,11 @@ export default function App() {
                 </div>
                 {/* Browsers grant one folder per click, so reconnect them one at a time. */}
                 <button
-                  onClick={() => reconnectFolder(disconnected[0])}
+                  data-reconnect
+                  onClick={() => {
+                    autoAsked.current.add(disconnected[0].id);
+                    reconnectFolder(disconnected[0]);
+                  }}
                   className="h-8 max-w-full shrink-0 truncate rounded-full bg-amber-300 px-4 text-[13px] font-semibold text-black hover:bg-amber-200"
                 >
                   {disconnected.length === 1 ? "Reconnect" : `Reconnect “${disconnected[0].name}”`}
