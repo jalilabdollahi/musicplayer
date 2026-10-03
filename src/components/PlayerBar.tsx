@@ -17,6 +17,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { RepeatMode, Track } from "../types/music";
+import { supportsVolumeControl } from "../services/audioEngine";
 import { Artwork, IconButton, cx, formatTime } from "./ui";
 
 export interface TransportProps {
@@ -146,6 +147,8 @@ export function VolumeControl({
   onToggleMute: () => void;
   className?: string;
 }) {
+  // iPhone and iPad only take volume from the hardware buttons.
+  if (!supportsVolumeControl) return null;
   const level = isMuted ? 0 : volume;
   return (
     <div className={cx("flex items-center gap-1", className)}>

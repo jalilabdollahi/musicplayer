@@ -65,7 +65,7 @@ function detectMode(): InstallMode | null {
   if (!window.isSecureContext) return "insecure";
   if (deferredPrompt) return "prompt";
   const ua = navigator.userAgent;
-  if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return "ios";
+  if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 0)) return "ios";
   if (/Android/.test(ua)) return "android-manual";
   if (/Firefox/.test(ua)) return "unsupported";
   if (/Macintosh/.test(ua) && /Safari/.test(ua) && !/Chrome|Chromium|Edg|OPR/.test(ua)) return "mac-safari";
