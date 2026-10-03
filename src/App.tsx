@@ -4,7 +4,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Disc3, FolderOpen, Library, ListMusic, Music2, Plus, Trash2, TriangleAlert, Upload, Users } from "lucide-react";
+import { Disc3, Folder, FolderOpen, Library, ListMusic, Music2, Plus, Trash2, TriangleAlert, Upload, Users } from "lucide-react";
 import { AudioEngineSettings, LinkedFolder, Playlist, RepeatMode, SyncedLyricLine, Track } from "./types/music";
 import { audioEngine } from "./services/audioEngine";
 import {
@@ -50,11 +50,17 @@ import { SmartPlaylistModal } from "./components/SmartPlaylistModal";
 import { ShortcutsModal } from "./components/ShortcutsModal";
 import { AddMusicModal } from "./components/AddMusicModal";
 import { AppLogo } from "./components/AppLogo";
-import { InstallButton, InstallHelpModal, useInstallPrompt } from "./components/InstallPrompt";
+import { InstallButton, InstallHelpModal, isStandalone, useInstallPrompt } from "./components/InstallPrompt";
 import { InstallGate, installGateDismissed } from "./components/InstallGate";
 import {
   Album,
   AlbumGrid,
+  Breadcrumbs,
+  FolderGrid,
+  FolderNode,
+  IMPORTED_SOURCE,
+  folderContents,
+  tracksInSource,
   ArtistGrid,
   EmptyState,
   PageHeader,
@@ -81,6 +87,9 @@ export type Route =
   | { kind: "recent" }
   | { kind: "playlist"; id: string }
   | { kind: "playlists" }
+  | { kind: "folders" }
+  /** A folder inside a source: a linked folder id or IMPORTED_SOURCE; path "" is its root. */
+  | { kind: "folder"; source: string; path: string }
   | { kind: "sources" };
 
 // ---------------------------------------------------------------- Session persistence
@@ -163,7 +172,13 @@ export default function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [folders, setFolders] = useState<LinkedFolder[]>([]);
+  // false = the browser no longer grants access; true/undefined = readable.
   const [folderAccess, setFolderAccess] = useState<Record<string, boolean>>({});
+  // Linked folders that are granted but can't be opened (moved, renamed, deleted).
+  const [folderMissing, setFolderMissing] = useState<Record<string, boolean>>({});
+  // Folders whose permission request failed: on Android a stored folder often
+  // can't be re-granted, only picked again.
+  const [relinkNeeded, setRelinkNeeded] = useState<Record<string, boolean>>({});
   const [scanning, setScanning] = useState(false);
   const [storage, setStorage] = useState<{ usage: number; quota: number } | null>(null);
 
@@ -278,21 +293,31 @@ export default function App() {
         if (result.removedIds.length) await deleteTracks(result.removedIds);
         mergeTracks(changed, result.removedIds);
 
-        const scanned = { ...folder, lastScanAt: Date.now() };
+        const scanned = { ...folder, lastScanAt: Date.now(), skipped: result.skipped };
         await saveFolder(scanned);
         setFolders((prev) => prev.map((f) => (f.id === folder.id ? scanned : f)));
+        setFolderMissing((prev) => ({ ...prev, [folder.id]: false }));
 
         const parts = [
           result.added.length && `${result.added.length} new`,
           result.updated.length && `${result.updated.length} updated`,
           result.removedIds.length && `${result.removedIds.length} removed`,
+          result.skipped.length && `${result.skipped.length} couldn't be read`,
         ].filter(Boolean);
         if (!quiet || parts.length) showToast({ text: parts.length ? `“${folder.name}”: ${parts.join(", ")}` : `“${folder.name}” is up to date` });
         else setToast(null);
       } catch (err) {
         console.error("Folder scan failed", err);
-        showToast({ text: `Couldn't read “${folder.name}”. It may have been moved or renamed.` }, 6000);
-        setFolderAccess((prev) => ({ ...prev, [folder.id]: false }));
+        // Only call it a permission problem when the browser says so; a
+        // granted folder that won't open has been moved or deleted.
+        if (await ensureFolderPermission(folder.handle, false)) {
+          setFolderMissing((prev) => ({ ...prev, [folder.id]: true }));
+          showToast({ text: `Couldn't open “${folder.name}”. It may have been moved, renamed or deleted.` }, 6000);
+        } else {
+          setFolderAccess((prev) => ({ ...prev, [folder.id]: false }));
+          if (!quiet) showToast({ text: `HighFi no longer has access to “${folder.name}”. Reconnect it to keep playing its songs.` }, 6000);
+          else setToast(null);
+        }
       } finally {
         setScanning(false);
       }
@@ -736,10 +761,39 @@ export default function App() {
     }
   };
 
+  /** Picks the same folder again and swaps in the fresh handle; the library is kept. */
+  const relinkFolder = async (folder: LinkedFolder) => {
+    let picked: FileSystemDirectoryHandle | null;
+    try {
+      picked = await pickFolder(folder.handle);
+    } catch {
+      // Some builds reject startIn for a handle that lost permission.
+      picked = await pickFolder().catch(() => null);
+    }
+    if (!picked) return;
+    const same = (await picked.isSameEntry(folder.handle).catch(() => false)) || picked.name === folder.name;
+    if (!same) {
+      showToast({ text: `That's “${picked.name}”. Choose “${folder.name}” to reconnect it, or link “${picked.name}” from Add music.` }, 7000);
+      return;
+    }
+    const relinked = { ...folder, handle: picked };
+    await saveFolder(relinked);
+    setFolders((prev) => prev.map((f) => (f.id === folder.id ? relinked : f)));
+    setFolderAccess((prev) => ({ ...prev, [folder.id]: true }));
+    setRelinkNeeded((prev) => ({ ...prev, [folder.id]: false }));
+    runScan(relinked, true);
+  };
+
+  /**
+   * Asks the browser to restore access to a stored folder. When that isn't
+   * possible (common on Android), the next tap re-picks the folder instead.
+   */
   const reconnectFolder = async (folder: LinkedFolder) => {
+    if (relinkNeeded[folder.id]) return relinkFolder(folder);
     const granted = await ensureFolderPermission(folder.handle, true);
     setFolderAccess((prev) => ({ ...prev, [folder.id]: granted }));
     if (granted) runScan(folder, true);
+    else setRelinkNeeded((prev) => ({ ...prev, [folder.id]: true }));
   };
 
   const unlinkFolder = async (folder: LinkedFolder) => {
@@ -799,6 +853,24 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
+  // Browsers only show the permission prompt in response to a click, so the
+  // first click anywhere asks for one disconnected folder (once per folder
+  // per session, so a "Don't allow" isn't followed by repeated prompts).
+  const autoAsked = useRef(new Set<string>());
+  useEffect(() => {
+    const next = folders.find((f) => folderAccess[f.id] === false && !autoAsked.current.has(f.id));
+    if (!next) return;
+    const onPointer = (e: PointerEvent) => {
+      if ((e.target as Element | null)?.closest?.("[data-reconnect]")) return; // the banner button asks itself
+      autoAsked.current.add(next.id);
+      reconnectFolder(next);
+    };
+    window.addEventListener("pointerdown", onPointer, { capture: true, once: true });
+    return () => window.removeEventListener("pointerdown", onPointer, { capture: true });
+    // reconnectFolder is recreated each render; the folder list and access drive this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folders, folderAccess]);
+
   // ---------------------------------------------------------------- Keyboard
 
   useEffect(() => {
@@ -855,7 +927,7 @@ export default function App() {
       } else if ((mod && key === "f") || e.key === "/") {
         handled();
         setNowPlaying(null);
-        if (!["songs", "albums", "artists", "favorites", "recent", "playlist"].includes(route.kind)) navigate({ kind: "songs" });
+        if (!["songs", "albums", "artists", "favorites", "recent", "playlist", "folder"].includes(route.kind)) navigate({ kind: "songs" });
         requestAnimationFrame(() => searchRef.current?.focus());
       } else if (e.key === "?") {
         handled();
@@ -1074,6 +1146,7 @@ export default function App() {
               recentCount={Math.min(tracks.length, 300)}
               onOpenFavorites={() => navigate({ kind: "favorites" })}
               onOpenRecent={() => navigate({ kind: "recent" })}
+              onOpenFolders={() => navigate({ kind: "folders" })}
               onOpenPlaylist={(id) => navigate({ kind: "playlist", id })}
               onCreate={() => setShowSmartPlaylist(true)}
               onOpenSources={() => navigate({ kind: "sources" })}
@@ -1082,6 +1155,102 @@ export default function App() {
           </>
         );
 
+      case "folders": {
+        const sources: FolderNode[] = [
+          ...folders.map((f) => {
+            const list = tracksInSource(tracks, f.id);
+            return { key: f.id, name: f.name, path: "", tracks: list, cover: list.find((t) => t.coverArtUrl)?.coverArtUrl };
+          }),
+          ...(() => {
+            const imported = tracksInSource(tracks, IMPORTED_SOURCE);
+            return imported.length
+              ? [{ key: IMPORTED_SOURCE, name: "Imported", path: "", tracks: imported, cover: imported.find((t) => t.coverArtUrl)?.coverArtUrl }]
+              : [];
+          })(),
+        ];
+        return (
+          <>
+            <PageHeader title="Folders" meta={`${sources.length} ${sources.length === 1 ? "source" : "sources"}`} />
+            <div className="h-4" />
+            {sources.length ? (
+              <FolderGrid
+                folders={sources}
+                onOpen={(f) => navigate({ kind: "folder", source: f.key, path: "" })}
+                onPlay={(f) => playList(folderContents(f.tracks, "").all)}
+                badge={(f) =>
+                  folderAccess[f.key] === false ? (
+                    <span className="inline-flex items-center gap-1 text-amber-300">
+                      · <TriangleAlert size={12} /> needs access
+                    </span>
+                  ) : null
+                }
+              />
+            ) : (
+              <EmptyState icon={<Folder size={24} />} title="No folders yet" body="Link or import a folder and it shows up here." />
+            )}
+          </>
+        );
+      }
+
+      case "folder": {
+        const linked = folders.find((f) => f.id === route.source);
+        const sourceName = route.source === IMPORTED_SOURCE ? "Imported" : linked?.name;
+        if (!sourceName) return <EmptyState icon={<Folder size={24} />} title="Folder not found" body="It may have been unlinked." />;
+        const { all, subfolders, files } = folderContents(tracksInSource(tracks, route.source), route.path);
+        const segments = route.path ? route.path.split("/") : [];
+        const title = segments[segments.length - 1] ?? sourceName;
+        const openPath = (path: string | null) =>
+          navigate(path === null ? { kind: "folders" } : { kind: "folder", source: route.source, path });
+        const shownFiles = q ? all.filter((t) => matchesQuery(t, q)) : files;
+        return (
+          <>
+            <div className="px-4 pt-4 md:px-8 md:pt-8">
+              <Breadcrumbs
+                onOpen={openPath}
+                parts={[
+                  { label: "Folders", path: null },
+                  { label: sourceName, path: "" },
+                  ...segments.map((seg, i) => ({ label: seg, path: segments.slice(0, i + 1).join("/") })),
+                ]}
+              />
+            </div>
+            <div className="-mt-4 md:-mt-8">
+              <PageHeader
+                title={title}
+                eyebrow="Folder"
+                meta={
+                  all.length
+                    ? `${subfolders.length ? `${subfolders.length} ${subfolders.length === 1 ? "folder" : "folders"} · ` : ""}${all.length} ${all.length === 1 ? "song" : "songs"} · ${totalDuration(all)}`
+                    : undefined
+                }
+                actions={all.length ? <PlayActions onPlay={() => playList(all)} onShuffle={() => playList(all, 0, true)} /> : undefined}
+              />
+            </div>
+            {all.length === 0 ? (
+              <EmptyState icon={<Folder size={24} />} title="This folder is empty" body="No songs were found in it." />
+            ) : (
+              <>
+                <Toolbar query={query} onQuery={setQuery} placeholder={`Search ${title}`} searchRef={searchRef} />
+                {!q && subfolders.length > 0 && (
+                  <FolderGrid
+                    folders={subfolders}
+                    onOpen={(f) => openPath(f.path)}
+                    onPlay={(f) => playList(folderContents(f.tracks, f.path).all)}
+                  />
+                )}
+                {shownFiles.length > 0 && (
+                  <>
+                    {!q && subfolders.length > 0 && <h2 className="px-4 pb-1 text-xl font-bold tracking-tight md:px-8">Songs in this folder</h2>}
+                    {list(shownFiles)}
+                  </>
+                )}
+                {q && shownFiles.length === 0 && noMatches}
+              </>
+            )}
+          </>
+        );
+      }
+
       case "sources":
         return (
           <SourcesView
@@ -1089,6 +1258,7 @@ export default function App() {
               folder,
               granted: folderAccess[folder.id] !== false,
               trackCount: tracks.filter((t) => t.folderId === folder.id).length,
+              missing: !!folderMissing[folder.id],
             }))}
             importedCount={tracks.filter((t) => t.source !== "folder").length}
             storage={storage}
@@ -1110,7 +1280,7 @@ export default function App() {
     { label: "Songs", icon: <Music2 size={22} />, route: { kind: "songs" }, match: ["songs"] },
     { label: "Albums", icon: <Disc3 size={22} />, route: { kind: "albums" }, match: ["albums", "album"] },
     { label: "Artists", icon: <Users size={22} />, route: { kind: "artists" }, match: ["artists", "artist"] },
-    { label: "Library", icon: <Library size={22} />, route: { kind: "playlists" }, match: ["playlists", "playlist", "favorites", "recent", "sources"] },
+    { label: "Library", icon: <Library size={22} />, route: { kind: "playlists" }, match: ["playlists", "playlist", "favorites", "recent", "sources", "folders", "folder"] },
   ];
 
   const disconnected = folders.filter((f) => folderAccess[f.id] === false);
@@ -1168,16 +1338,40 @@ export default function App() {
             </div>
 
             {disconnected.length > 0 && route.kind !== "sources" && (
-              <div className="mx-4 mt-4 flex items-center gap-3 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 md:mx-8">
+              <div className="mx-4 mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 md:mx-8">
                 <TriangleAlert size={18} className="shrink-0 text-amber-300" />
-                <p className="min-w-0 flex-1 text-sm">
-                  {disconnected.length === 1 ? `“${disconnected[0].name}” needs` : `${disconnected.length} folders need`} permission again to play.
-                </p>
+                <div className="min-w-0 flex-1 text-sm">
+                  <p>
+                    {relinkNeeded[disconnected[0].id]
+                      ? `Choose “${disconnected[0].name}” again to keep playing it.`
+                      : disconnected.length === 1
+                        ? `“${disconnected[0].name}” needs permission again to play.`
+                        : `${disconnected.length} folders need permission again to play.`}
+                  </p>
+                  <p className="mt-0.5 text-[13px] text-fg/60">
+                    {relinkNeeded[disconnected[0].id]
+                      ? "The folder picker opens on it. Tap “Use this folder”. Nothing is copied and your library stays as it is."
+                      : /Android/.test(navigator.userAgent)
+                        ? "Android doesn't keep folder access after the app closes, so it asks again."
+                        : isStandalone()
+                          ? "Allow access once and the installed app keeps it."
+                          : "In Chrome's prompt, choose “Allow on every visit” so HighFi doesn't ask again."}
+                  </p>
+                </div>
+                {/* Browsers grant one folder per click, so reconnect them one at a time. */}
                 <button
-                  onClick={() => disconnected.forEach(reconnectFolder)}
-                  className="h-8 shrink-0 rounded-full bg-amber-300 px-4 text-[13px] font-semibold text-black hover:bg-amber-200"
+                  data-reconnect
+                  onClick={() => {
+                    autoAsked.current.add(disconnected[0].id);
+                    reconnectFolder(disconnected[0]);
+                  }}
+                  className="h-8 max-w-full shrink-0 truncate rounded-full bg-amber-300 px-4 text-[13px] font-semibold text-black hover:bg-amber-200"
                 >
-                  Reconnect
+                  {relinkNeeded[disconnected[0].id]
+                    ? "Choose folder"
+                    : disconnected.length === 1
+                      ? "Reconnect"
+                      : `Reconnect “${disconnected[0].name}”`}
                 </button>
               </div>
             )}

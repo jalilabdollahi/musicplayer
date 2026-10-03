@@ -72,6 +72,8 @@ export interface LinkedFolder {
   lastScanAt?: number;
   /** Files the user removed from the library; rescans skip them. */
   excluded?: string[];
+  /** Folders and files the last scan couldn't read. */
+  skipped?: string[];
 }
 
 export interface SmartPlaylistRule {

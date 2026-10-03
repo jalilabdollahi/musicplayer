@@ -1,5 +1,22 @@
 import { AudioEngineSettings, EQPreset, Track } from '../types/music';
 
+/**
+ * iPhone and iPad (iPadOS reports itself as a Mac, but has touch). WebKit
+ * suspends Web Audio when the app goes to the background, which silences
+ * anything routed through an AudioContext. There, the player skips the
+ * effects graph and plays the media element directly so music keeps going.
+ */
+export const isAppleMobile =
+  typeof navigator !== 'undefined' &&
+  (/iPhone|iPad|iPod/.test(navigator.userAgent) ||
+    (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 0));
+
+/** EQ, preamp and stereo width need Web Audio; off on iPhone and iPad. */
+export const supportsAudioEffects = !isAppleMobile;
+
+/** iOS ignores media-element volume; only the hardware buttons change it. */
+export const supportsVolumeControl = !isAppleMobile;
+
 export const EQ_FREQUENCIES: { freq: number; label: string; type: BiquadFilterType }[] = [
   { freq: 32, label: '32Hz', type: 'lowshelf' },
   { freq: 64, label: '64Hz', type: 'peaking' },
@@ -68,11 +85,25 @@ export class AudioEngine {
     this.audioElement.crossOrigin = 'anonymous';
     this.audioElement.preload = 'auto';
 
+    // Safari 16.4+: declare a music-playback session, so audio continues in
+    // the background and ignores the ring/silent switch.
+    const audioSession = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+    if (audioSession) {
+      try {
+        audioSession.type = 'playback';
+      } catch {
+        // Older WebKit exposes the object but rejects the type.
+      }
+    }
+
     this.audioElement.addEventListener('timeupdate', () => {
       if (this.onTimeUpdateCallback) {
         this.onTimeUpdateCallback(this.audioElement.currentTime, this.audioElement.duration || 0);
       }
+      this.updateMediaSessionPosition();
     });
+    this.audioElement.addEventListener('ratechange', () => this.updateMediaSessionPosition());
+    this.audioElement.addEventListener('loadedmetadata', () => this.updateMediaSessionPosition());
 
     this.audioElement.addEventListener('ended', () => {
       if (this.onEndedCallback) {
@@ -92,9 +123,11 @@ export class AudioEngine {
   }
 
   /**
-   * Initializes AudioContext upon user gesture
+   * Initializes AudioContext upon user gesture. Returns null on iPhone and
+   * iPad, where the element plays directly (see isAppleMobile).
    */
-  public async ensureContext(): Promise<AudioContext> {
+  public async ensureContext(): Promise<AudioContext | null> {
+    if (!supportsAudioEffects) return null;
     if (!this.ctx) {
       const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtxClass();
@@ -440,6 +473,22 @@ export class AudioEngine {
           ? [{ src: track.coverArtUrl, sizes: '512x512', type: track.coverArtBlob?.type || 'image/jpeg' }]
           : [],
       });
+    }
+  }
+
+  /** Feeds the lock screen / Control Center scrubber. */
+  private updateMediaSessionPosition(): void {
+    if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+    const duration = this.audioElement.duration;
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        playbackRate: this.audioElement.playbackRate || 1,
+        position: Math.min(this.audioElement.currentTime, duration),
+      });
+    } catch {
+      // Out-of-range values during a source change; the next update fixes it.
     }
   }
 
