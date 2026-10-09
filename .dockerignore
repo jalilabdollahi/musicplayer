@@ -12,3 +12,6 @@ Dockerfile
 .dockerignore
 docker-compose.yml
 README.md
+android
+.github
+capacitor.config.ts

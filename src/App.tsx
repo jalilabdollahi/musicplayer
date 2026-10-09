@@ -23,6 +23,7 @@ import {
   updateTrack,
 } from "./services/db";
 import { getTracksForSmartPlaylist } from "./services/smartPlaylists";
+import { CarCommand, hasCarLink, onCarCommand, syncCarLibrary, syncCarState } from "./services/carMedia";
 import { isAudioFileName, isLyricsFileName } from "./services/audioMetadata";
 import { parseLrc } from "./services/lrcParser";
 import {
@@ -539,9 +540,11 @@ export default function App() {
     await audioEngine.play();
   }, [currentTrack, queue.length, tracks, sort, isPlaying, currentTime, currentIndex, playTrackAtIndex]);
 
+  const [seekCount, setSeekCount] = useState(0);
   const handleSeek = useCallback((seconds: number) => {
     audioEngine.seek(seconds);
     setCurrentTime(seconds);
+    setSeekCount((n) => n + 1);
   }, []);
 
   useEffect(() => {
@@ -563,6 +566,87 @@ export default function App() {
     },
     [shuffle, playTrackAtIndex],
   );
+
+  // ---------------------------------------------------------------- Android Auto
+
+  // The car browses the library the native side keeps; resend it on change.
+  useEffect(() => {
+    if (!hasCarLink || !ready) return;
+    const id = window.setTimeout(() => syncCarLibrary(tracks, playlists), 1000);
+    return () => window.clearTimeout(id);
+  }, [ready, tracks, playlists]);
+
+  // What's playing, for the car, the notification and the lock screen. The
+  // native side runs the clock between updates; seeks and a slow tick correct it.
+  const positionBucket = Math.floor(currentTime / 15);
+  useEffect(() => {
+    if (!hasCarLink) return;
+    syncCarState(currentTrack, {
+      durationMs: Math.round((duration || currentTrack?.duration || 0) * 1000),
+      positionMs: Math.round(audioEngine.getCurrentTime() * 1000),
+      playing: isPlaying,
+      speed: audioSettings.playbackRate ?? 1,
+      shuffle,
+      repeat: repeatMode,
+    });
+    // currentTime is read live from the engine; positionBucket and seekCount only trigger.
+  }, [currentTrack, duration, isPlaying, audioSettings.playbackRate, shuffle, repeatMode, positionBucket, seekCount]);
+
+  const handleCarCommandRef = useRef<(cmd: CarCommand) => void>(() => {});
+  useEffect(() => {
+    handleCarCommandRef.current = (cmd) => {
+      switch (cmd.action) {
+        case "play":
+          if (!isPlaying) handlePlayPause();
+          break;
+        case "pause":
+          if (isPlaying) handlePlayPause();
+          break;
+        case "next":
+          handleNext();
+          break;
+        case "prev":
+          handlePrev();
+          break;
+        case "seek":
+          handleSeek(cmd.positionMs / 1000);
+          break;
+        case "setShuffle":
+          setShuffle(cmd.enabled);
+          setShuffleHistory([]);
+          break;
+        case "setRepeat":
+          setRepeatMode(cmd.mode);
+          break;
+        case "playItem": {
+          const byId = new Map(tracks.map((t) => [t.id, t]));
+          const list = cmd.trackIds.map((id) => byId.get(id)).filter((t): t is Track => !!t);
+          const index = list.findIndex((t) => t.id === cmd.trackId);
+          if (index >= 0) playList(list, index);
+          else if (byId.has(cmd.trackId)) playList([byId.get(cmd.trackId)!]);
+          break;
+        }
+        case "playSearch": {
+          const q = cmd.query.trim().toLowerCase();
+          if (!q) {
+            if (currentTrack) {
+              if (!isPlaying) handlePlayPause();
+            } else if (tracks.length) {
+              playList(sortTracks(tracks, "title"), 0, true);
+            }
+            break;
+          }
+          const words = q.split(/\s+/);
+          const hits = sortTracks(tracks, "title").filter((t) => words.every((w) => matchesQuery(t, w)));
+          if (hits.length) playList(hits);
+          else showToast({ text: `Nothing in your library matches “${cmd.query}”.` });
+          break;
+        }
+      }
+    };
+  });
+
+  useEffect(() => onCarCommand((cmd) => handleCarCommandRef.current(cmd)), []);
 
   const handleSetVolume = (volume: number) => {
     audioEngine.setMuted(false);

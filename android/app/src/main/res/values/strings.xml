@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">HighFi Player</string>
+    <string name="title_activity_main">HighFi Player</string>
+    <string name="package_name">com.highfi.player</string>
+    <string name="custom_url_scheme">com.highfi.player</string>
+</resources>
