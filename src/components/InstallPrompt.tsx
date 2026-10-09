@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Copy, Download, EllipsisVertical, ExternalLink, MonitorDown, PlusSquare, Share } from "lucide-react";
+import { isNativeApp } from "../services/carMedia";
 import { Button, Modal } from "./ui";
 
 /**
@@ -54,6 +55,7 @@ export type InstallMode =
 
 export function isStandalone(): boolean {
   return (
+    isNativeApp ||
     window.matchMedia("(display-mode: standalone)").matches ||
     window.matchMedia("(display-mode: window-controls-overlay)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
