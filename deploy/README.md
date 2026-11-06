@@ -10,9 +10,15 @@ IP, with `ufw allow 3012/tcp`. No reverse proxy is involved on this path.
 ```sh
 rsync -az --delete \
   --exclude node_modules --exclude .git --exclude dist --exclude .DS_Store \
+  --exclude /docker-compose.yml --exclude /deploy --exclude /android --exclude /.claude \
   ./ 91.98.123.217:/opt/highfi-player/
 ssh 91.98.123.217 'cd /opt/highfi-player && docker compose up -d --build'
 ```
+
+Keep the `/docker-compose.yml` exclude. The server's copy is
+`deploy/docker-compose.server.yml` and publishes port 3012, which the host's
+nginx proxies to. The one at the repo root publishes 8088 for local use, so
+uploading it would move the container and take the site down.
 
 ## What plain HTTP costs
 
