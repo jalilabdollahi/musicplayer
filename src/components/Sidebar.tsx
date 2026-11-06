@@ -8,6 +8,7 @@ import {
   ListMusic,
   Music2,
   Plus,
+  Radio,
   Sparkles,
   Users,
 } from "lucide-react";
@@ -45,6 +46,7 @@ export function Sidebar({
     { route: { kind: "folders" }, label: "Folders", icon: <Folders size={18} /> },
     { route: { kind: "recent" }, label: "Recently added", icon: <Clock3 size={18} /> },
     { route: { kind: "favorites" }, label: "Favorites", icon: <Heart size={18} />, count: counts.favorites },
+    { route: { kind: "radio" }, label: "Radio", icon: <Radio size={18} /> },
   ];
 
   const isActive = (r: Route) =>

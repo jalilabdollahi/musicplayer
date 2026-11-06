@@ -12,13 +12,14 @@ interface TrackInfoModalProps {
 export function TrackInfoModal({ track, folders, onClose }: TrackInfoModalProps) {
   const folder = folders.find((f) => f.id === track.folderId);
   const lossless = isLosslessFormat(track.format);
+  const isLive = track.source === "radio";
   const khz = track.sampleRate ? `${(track.sampleRate / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} kHz` : null;
 
   const rows: [string, string | null | undefined][] = [
     ["Format", `${track.format}${lossless ? " · lossless" : ""}`],
     ["Sample rate", khz],
     ["Bit depth", track.bitDepth ? (track.bitDepth === 1 ? "1-bit (DSD)" : `${track.bitDepth}-bit`) : null],
-    ["Bitrate", track.bitrate ? `${track.bitrate.toLocaleString()} kbps${lossless ? "" : " avg"}` : null],
+    ["Bitrate", track.bitrate ? `${track.bitrate.toLocaleString()} kbps${lossless || isLive ? "" : " avg"}` : null],
     ["Channels", track.channels ? (track.channels === 1 ? "Mono" : track.channels === 2 ? "Stereo" : `${track.channels} channels`) : null],
     ["Duration", track.duration ? formatTime(track.duration) : null],
     ["Genre", track.genre || null],
@@ -26,13 +27,13 @@ export function TrackInfoModal({ track, folders, onClose }: TrackInfoModalProps)
     ["Track", track.trackNo ? String(track.trackNo) : null],
     ["BPM", track.bpm ? String(track.bpm) : null],
     ["File size", track.fileSize ? formatBytes(track.fileSize) : null],
-    ["Location", track.source === "folder" ? `${folder?.name ?? "Linked folder"}/${track.relPath}` : `Imported · ${track.filePath ?? ""}`],
-    ["Plays", String(track.playCount || 0)],
-    ["Added", new Date(track.dateAdded).toLocaleDateString(undefined, { dateStyle: "medium" })],
+    ["Location", isLive ? `Live stream · ${new URL(track.audioUrl ?? "https://unknown").hostname}` : track.source === "folder" ? `${folder?.name ?? "Linked folder"}/${track.relPath}` : `Imported · ${track.filePath ?? ""}`],
+    ["Plays", isLive ? null : String(track.playCount || 0)],
+    ["Added", isLive ? null : new Date(track.dateAdded).toLocaleDateString(undefined, { dateStyle: "medium" })],
   ];
 
   return (
-    <Modal title="Track info" onClose={onClose}>
+    <Modal title={isLive ? "Station info" : "Track info"} onClose={onClose}>
       <div className="flex items-center gap-4">
         <Artwork src={track.coverArtUrl} seed={track.album} className="size-20 shadow-lg shadow-black/40" rounded="rounded-lg" iconSize={28} />
         <div className="min-w-0">

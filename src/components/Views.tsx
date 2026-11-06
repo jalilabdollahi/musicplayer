@@ -504,11 +504,13 @@ export function PlaylistsIndex({
 // ---------------------------------------------------------------- First run
 
 export function Welcome({
+  onOpenRadio,
   canLinkFolder,
   onLinkFolder,
   onImportFolder,
   onImportFiles,
 }: {
+  onOpenRadio: () => void;
   canLinkFolder: boolean;
   onLinkFolder: () => void;
   onImportFolder: () => void;
@@ -547,6 +549,9 @@ export function Welcome({
         <SourceCard icon={<FileAudio size={20} />} title="Import files" body="Pick individual songs and .lrc lyrics files." onClick={onImportFiles} />
       </div>
       <p className="mt-6 text-[13px] text-faint">You can also drag files or folders anywhere onto this window.</p>
+      <button onClick={onOpenRadio} className="mt-4 text-sm font-medium text-muted hover:text-fg">
+        No files handy? Listen to live radio →
+      </button>
     </div>
   );
 }

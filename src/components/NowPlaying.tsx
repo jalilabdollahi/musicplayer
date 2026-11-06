@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { ChevronDown, Heart, Info, ListMusic, MicVocal, SlidersHorizontal } from "lucide-react";
+import { isLiveTrack } from "../services/audioEngine";
 import { SyncedLyricLine, Track } from "../types/music";
 import { Dialog } from "./Dialog";
 import { LyricsPanel } from "./LyricsPanel";
@@ -45,8 +46,11 @@ export function NowPlaying(props: NowPlayingProps) {
   const { currentTrack: track, onClose } = props;
   const wide = useMediaQuery("(min-width: 1024px)");
   // On wide screens a side panel is always shown; on phones it replaces the art.
-  const [panel, setPanel] = useState<NowPlayingPanel | null>(props.initialPanel ?? null);
-  const sidePanel: NowPlayingPanel = panel ?? "lyrics";
+  const [chosenPanel, setPanel] = useState<NowPlayingPanel | null>(props.initialPanel ?? null);
+  const isLive = isLiveTrack(track);
+  // A broadcast has no lyrics; the station list takes that panel's place.
+  const panel = isLive && chosenPanel === "lyrics" ? "queue" : chosenPanel;
+  const sidePanel: NowPlayingPanel = panel ?? (isLive ? "queue" : "lyrics");
 
   const togglePanel = (p: NowPlayingPanel) => setPanel((cur) => (cur === p && !wide ? null : p));
 
@@ -101,7 +105,7 @@ export function NowPlaying(props: NowPlayingProps) {
           </IconButton>
           <div className="min-w-0 flex-1 text-center">
             <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-fg/60">Playing from</p>
-            <p className="truncate text-sm font-semibold">{track?.album ?? "Your library"}</p>
+            <p className="truncate text-sm font-semibold">{isLive ? "Live radio" : (track?.album ?? "Your library")}</p>
           </div>
           <IconButton label="Track info" onClick={() => track && props.onShowInfo(track)} disabled={!track} size="lg" className="text-fg/80">
             <Info size={20} />
@@ -142,13 +146,22 @@ export function NowPlaying(props: NowPlayingProps) {
 
             <div className={cx("flex shrink-0 flex-col items-center", wide ? "mt-8 gap-5" : "mt-5 gap-4")}>
               {!(!wide && panel) && titleBlock}
-              <Scrubber currentTime={props.currentTime} duration={props.duration} onSeek={props.onSeek} disabled={!track} large />
+              <Scrubber
+                live={isLive ? { status: props.liveStatus, isPlaying: props.isPlaying } : undefined}
+                currentTime={props.currentTime}
+                duration={props.duration}
+                onSeek={props.onSeek}
+                disabled={!track}
+                large
+              />
               <Transport {...props} large />
               {wide ? (
                 <div className="flex w-full items-center justify-between">
                   <VolumeControl volume={props.volume} isMuted={props.isMuted} onSetVolume={props.onSetVolume} onToggleMute={props.onToggleMute} />
                   <div className="flex items-center gap-2">
-                    <SpeedButton rate={props.playbackRate} onCycle={props.onCyclePlaybackRate} className={props.playbackRate === 1 ? "text-fg/70" : ""} />
+                    {!isLive && (
+                      <SpeedButton rate={props.playbackRate} onCycle={props.onCyclePlaybackRate} className={props.playbackRate === 1 ? "text-fg/70" : ""} />
+                    )}
                     {track && (
                       <span className="rounded bg-white/10 px-2 py-1 text-[11px] font-semibold tracking-wide text-fg/70">{qualityLabel(track)}</span>
                     )}
@@ -156,10 +169,14 @@ export function NowPlaying(props: NowPlayingProps) {
                 </div>
               ) : (
                 <div className="flex w-full items-center justify-between px-2">
-                  <IconButton label="Lyrics" active={panel === "lyrics"} onClick={() => togglePanel("lyrics")} className={panel === "lyrics" ? "" : "text-fg/70"}>
-                    <MicVocal size={20} />
-                  </IconButton>
-                  <SpeedButton rate={props.playbackRate} onCycle={props.onCyclePlaybackRate} className={cx("h-9", props.playbackRate === 1 && "text-fg/70")} />
+                  {!isLive && (
+                    <>
+                      <IconButton label="Lyrics" active={panel === "lyrics"} onClick={() => togglePanel("lyrics")} className={panel === "lyrics" ? "" : "text-fg/70"}>
+                        <MicVocal size={20} />
+                      </IconButton>
+                      <SpeedButton rate={props.playbackRate} onCycle={props.onCyclePlaybackRate} className={cx("h-9", props.playbackRate === 1 && "text-fg/70")} />
+                    </>
+                  )}
                   <IconButton label="Equalizer" onClick={props.onOpenEqualizer} className="text-fg/70">
                     <SlidersHorizontal size={19} />
                   </IconButton>
@@ -175,7 +192,7 @@ export function NowPlaying(props: NowPlayingProps) {
           {wide && (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-3xl bg-black/25 p-6 backdrop-blur-sm">
               <div className="mb-3 flex shrink-0 items-center gap-1" role="tablist">
-                {(["lyrics", "queue"] as const).map((p) => (
+                {(isLive ? (["queue"] as const) : (["lyrics", "queue"] as const)).map((p) => (
                   <button
                     key={p}
                     role="tab"

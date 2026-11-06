@@ -53,9 +53,10 @@ export interface Track {
   fileSize?: number;
   /**
    * Where the audio comes from. Imported tracks are copied into IndexedDB;
-   * folder tracks are read from a linked directory on every play.
+   * folder tracks are read from a linked directory on every play; radio tracks
+   * are live streams at audioUrl and are never saved to the library.
    */
-  source?: 'imported' | 'folder';
+  source?: 'imported' | 'folder' | 'radio';
   folderId?: string;
   /** Path inside the linked folder, '/'-separated. */
   relPath?: string;
