@@ -17,6 +17,23 @@ export const supportsAudioEffects = !isAppleMobile;
 /** iOS ignores media-element volume; only the hardware buttons change it. */
 export const supportsVolumeControl = !isAppleMobile;
 
+export const isLiveTrack = (track: Track | null | undefined): boolean => track?.source === 'radio';
+
+/** Where a live stream stands: reaching it, on air, or given up on. */
+export type LiveStatus = 'idle' | 'connecting' | 'live' | 'failed';
+
+/** How long a station may take to come on air before it counts as down. */
+const LIVE_CONNECT_TIMEOUT_MS = 15000;
+/**
+ * How long a playing stream may sit silent before it counts as dropped. Browsers
+ * often report a closed connection only as endless 'waiting', with no error.
+ */
+const LIVE_STALL_TIMEOUT_MS = 8000;
+/** Waits before each reconnect after a stream that was playing drops. */
+const LIVE_RETRY_DELAYS_MS = [2000, 5000, 10000];
+/** A stream that played this long was healthy, so a later drop starts over. */
+const LIVE_HEALTHY_SECONDS = 15;
+
 export const EQ_FREQUENCIES: { freq: number; label: string; type: BiquadFilterType }[] = [
   { freq: 32, label: '32Hz', type: 'lowshelf' },
   { freq: 64, label: '64Hz', type: 'peaking' },
@@ -43,7 +60,15 @@ export const EQ_PRESETS: EQPreset[] = [
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
+  /** Permanently wired into the effects graph. */
   private audioElement: HTMLAudioElement;
+  /**
+   * Plays streams that refuse cross-origin access, outside the graph: Web Audio
+   * outputs silence for those, and a media element can't leave a graph once in.
+   */
+  private directElement: HTMLAudioElement | null = null;
+  /** Whichever of the two is making sound. */
+  private activeElement: HTMLAudioElement;
   private sourceNode: MediaElementAudioSourceNode | null = null;
   private preampGainNode: GainNode | null = null;
   private eqFilters: BiquadFilterNode[] = [];
@@ -65,6 +90,13 @@ export class AudioEngine {
   private onTimeUpdateCallback: ((time: number, duration: number) => void) | null = null;
   private onEndedCallback: (() => void) | null = null;
   private onStateChangeCallback: ((isPlaying: boolean) => void) | null = null;
+  private onLiveStatusCallback: ((status: LiveStatus) => void) | null = null;
+
+  private liveDirect = false;
+  private liveHasPlayed = false;
+  private liveRetries = 0;
+  private liveRetryTimer: number | undefined;
+  private liveStallTimer: number | undefined;
 
   private settings: AudioEngineSettings = {
     volume: 0.85,
@@ -82,8 +114,11 @@ export class AudioEngine {
 
   constructor() {
     this.audioElement = new Audio();
-    this.audioElement.crossOrigin = 'anonymous';
+    // Only the effects graph needs cross-origin access to the audio. Where it
+    // isn't used, asking for it would just block streams that don't allow it.
+    if (supportsAudioEffects) this.audioElement.crossOrigin = 'anonymous';
     this.audioElement.preload = 'auto';
+    this.activeElement = this.audioElement;
 
     // Safari 16.4+: declare a music-playback session, so audio continues in
     // the background and ignores the ring/silent switch.
@@ -96,30 +131,170 @@ export class AudioEngine {
       }
     }
 
-    this.audioElement.addEventListener('timeupdate', () => {
+    this.bindElementEvents(this.audioElement);
+  }
+
+  private bindElementEvents(el: HTMLAudioElement): void {
+    const whenActive = (handler: () => void) => () => {
+      if (el === this.activeElement) handler();
+    };
+
+    el.addEventListener('timeupdate', whenActive(() => {
+      if (this.isLive()) {
+        if (el.currentTime >= LIVE_HEALTHY_SECONDS) this.liveRetries = 0;
+        this.onTimeUpdateCallback?.(el.currentTime, 0);
+        return;
+      }
       if (this.onTimeUpdateCallback) {
-        this.onTimeUpdateCallback(this.audioElement.currentTime, this.audioElement.duration || 0);
+        this.onTimeUpdateCallback(el.currentTime, el.duration || 0);
       }
       this.updateMediaSessionPosition();
-    });
-    this.audioElement.addEventListener('ratechange', () => this.updateMediaSessionPosition());
-    this.audioElement.addEventListener('loadedmetadata', () => this.updateMediaSessionPosition());
+    }));
+    el.addEventListener('ratechange', whenActive(() => this.updateMediaSessionPosition()));
+    el.addEventListener('loadedmetadata', whenActive(() => this.updateMediaSessionPosition()));
 
-    this.audioElement.addEventListener('ended', () => {
+    el.addEventListener('ended', whenActive(() => {
+      // A live stream has no end: the server closed the connection.
+      if (this.isLive()) {
+        this.handleLiveFailure();
+        return;
+      }
       if (this.onEndedCallback) {
         this.onEndedCallback();
       }
-    });
+    }));
 
-    this.audioElement.addEventListener('play', () => {
+    el.addEventListener('play', whenActive(() => {
       this.updateMediaSessionPlaybackState('playing');
       this.onStateChangeCallback?.(true);
-    });
+    }));
 
-    this.audioElement.addEventListener('pause', () => {
+    el.addEventListener('pause', whenActive(() => {
       this.updateMediaSessionPlaybackState('paused');
       this.onStateChangeCallback?.(false);
+    }));
+
+    el.addEventListener('playing', whenActive(() => {
+      if (!this.isLive()) return;
+      window.clearTimeout(this.liveStallTimer);
+      this.liveHasPlayed = true;
+      this.setLiveStatus('live');
+    }));
+
+    el.addEventListener('waiting', whenActive(() => {
+      if (!this.isLive()) return;
+      this.armLiveStallTimer();
+      this.setLiveStatus('connecting');
+    }));
+
+    el.addEventListener('error', whenActive(() => {
+      // el.error is cleared by a newer load, which makes a queued event stale.
+      if (this.isLive() && el.error) this.handleLiveFailure();
+    }));
+  }
+
+  private isLive(): boolean {
+    return isLiveTrack(this.currentTrack);
+  }
+
+  private getDirectElement(): HTMLAudioElement {
+    if (!this.directElement) {
+      const el = new Audio();
+      el.preload = 'auto';
+      el.volume = this.settings.volume;
+      el.muted = this.settings.isMuted;
+      this.bindElementEvents(el);
+      this.directElement = el;
+    }
+    return this.directElement;
+  }
+
+  /** Drops the source so the element stops downloading. Fires no error event. */
+  private releaseElement(el: HTMLAudioElement): void {
+    el.pause();
+    el.removeAttribute('src');
+    el.load();
+  }
+
+  private setLiveStatus(status: LiveStatus): void {
+    this.onLiveStatusCallback?.(status);
+  }
+
+  private clearLiveTimers(): void {
+    window.clearTimeout(this.liveRetryTimer);
+    window.clearTimeout(this.liveStallTimer);
+  }
+
+  private armLiveStallTimer(): void {
+    window.clearTimeout(this.liveStallTimer);
+    const timeout = this.liveHasPlayed ? LIVE_STALL_TIMEOUT_MS : LIVE_CONNECT_TIMEOUT_MS;
+    this.liveStallTimer = window.setTimeout(() => this.handleLiveFailure(), timeout);
+  }
+
+  /** Forgets any stream in progress; the next load starts clean. */
+  private resetLive(): void {
+    this.clearLiveTimers();
+    this.liveDirect = false;
+    this.liveHasPlayed = false;
+    this.liveRetries = 0;
+    if (this.activeElement !== this.audioElement) {
+      this.releaseElement(this.activeElement);
+      this.activeElement = this.audioElement;
+    }
+    this.setLiveStatus('idle');
+  }
+
+  private startLive(): void {
+    const url = this.currentTrack?.audioUrl;
+    if (!url) return;
+    this.clearLiveTimers();
+
+    const el = this.liveDirect ? this.getDirectElement() : this.audioElement;
+    if (el !== this.activeElement) this.releaseElement(this.activeElement);
+    this.activeElement = el;
+
+    this.setLiveStatus('connecting');
+    this.armLiveStallTimer();
+    el.src = url;
+    el.load();
+    this.applyPlaybackRate();
+    el.play().catch((err: unknown) => {
+      // The browser wants a fresh tap; every other failure raises 'error'.
+      if (el !== this.activeElement || (err as Error)?.name !== 'NotAllowedError') return;
+      this.stopLive('idle');
     });
+  }
+
+  /** Disconnects from the stream and reports the player as stopped. */
+  private stopLive(status: LiveStatus): void {
+    this.clearLiveTimers();
+    this.releaseElement(this.activeElement);
+    this.setLiveStatus(status);
+    // Releasing can discard the queued 'pause' event, so report it here.
+    this.updateMediaSessionPlaybackState('paused');
+    this.onStateChangeCallback?.(false);
+  }
+
+  private handleLiveFailure(): void {
+    this.clearLiveTimers();
+
+    // Never played: most likely no cross-origin access, so go around the graph.
+    if (!this.liveHasPlayed && !this.liveDirect && supportsAudioEffects) {
+      this.liveDirect = true;
+      this.startLive();
+      return;
+    }
+
+    // A station that never came on air won't be helped by retrying now.
+    const delay = LIVE_RETRY_DELAYS_MS[this.liveRetries];
+    if (!this.liveHasPlayed || delay === undefined) {
+      this.stopLive('failed');
+      return;
+    }
+
+    this.liveRetries++;
+    this.setLiveStatus('connecting');
+    this.liveRetryTimer = window.setTimeout(() => this.startLive(), delay);
   }
 
   /**
@@ -263,6 +438,7 @@ export class AudioEngine {
 
   public async loadTrack(track: Track, autoPlay: boolean = true): Promise<void> {
     await this.ensureContext();
+    this.resetLive();
     this.currentTrack = track;
 
     if (this.currentBlobUrl) {
@@ -271,6 +447,12 @@ export class AudioEngine {
     }
 
     this.updateMediaSession(track);
+
+    if (isLiveTrack(track)) {
+      this.clearMediaSessionPosition();
+      if (autoPlay) this.startLive();
+      return;
+    }
 
     if (track.audioBlob) {
       this.currentBlobUrl = URL.createObjectURL(track.audioBlob);
@@ -309,6 +491,16 @@ export class AudioEngine {
     if (!this.currentTrack) return;
 
     await this.ensureContext();
+
+    // Pausing disconnects, so resuming joins the broadcast where it is now.
+    if (this.isLive()) {
+      if (this.activeElement.paused) {
+        this.liveRetries = 0;
+        this.startLive();
+      }
+      return;
+    }
+
     try {
       await this.audioElement.play();
     } catch {
@@ -321,14 +513,19 @@ export class AudioEngine {
   }
 
   public pause(): void {
+    if (this.isLive()) {
+      this.stopLive('idle');
+      return;
+    }
     this.audioElement.pause();
   }
 
   public isPlaying(): boolean {
-    return !this.audioElement.paused && !this.audioElement.ended;
+    return !this.activeElement.paused && !this.activeElement.ended;
   }
 
   public seek(seconds: number): void {
+    if (this.isLive()) return;
     this.audioElement.currentTime = Math.max(0, Math.min(seconds, this.audioElement.duration || seconds));
     if (this.onTimeUpdateCallback) {
       this.onTimeUpdateCallback(seconds, this.getDuration());
@@ -336,10 +533,11 @@ export class AudioEngine {
   }
 
   public getCurrentTime(): number {
-    return this.audioElement.currentTime || 0;
+    return this.activeElement.currentTime || 0;
   }
 
   public getDuration(): number {
+    if (this.isLive()) return 0;
     return this.audioElement.duration || this.currentTrack?.duration || 0;
   }
 
@@ -349,9 +547,11 @@ export class AudioEngine {
   }
 
   private applyPlaybackRate(): void {
-    this.audioElement.preservesPitch = true;
-    this.audioElement.defaultPlaybackRate = this.settings.playbackRate;
-    this.audioElement.playbackRate = this.settings.playbackRate;
+    // A broadcast can't be sped up: it would just run out of audio.
+    const rate = this.isLive() ? 1 : this.settings.playbackRate;
+    this.activeElement.preservesPitch = true;
+    this.activeElement.defaultPlaybackRate = rate;
+    this.activeElement.playbackRate = rate;
   }
 
   public setVolume(volume: number): void {
@@ -360,6 +560,7 @@ export class AudioEngine {
       this.masterGainNode.gain.setValueAtTime(this.settings.volume, this.ctx.currentTime);
     }
     this.audioElement.volume = this.settings.volume;
+    if (this.directElement) this.directElement.volume = this.settings.volume;
   }
 
   public setMuted(isMuted: boolean): void {
@@ -369,6 +570,7 @@ export class AudioEngine {
       this.masterGainNode.gain.setValueAtTime(vol, this.ctx.currentTime);
     }
     this.audioElement.muted = isMuted;
+    if (this.directElement) this.directElement.muted = isMuted;
   }
 
   public setPreampGain(dB: number): void {
@@ -462,6 +664,10 @@ export class AudioEngine {
     this.onStateChangeCallback = cb;
   }
 
+  public onLiveStatus(cb: (status: LiveStatus) => void): void {
+    this.onLiveStatusCallback = cb;
+  }
+
   // Native macOS MediaSession API integration
   private updateMediaSession(track: Track): void {
     if ('mediaSession' in navigator) {
@@ -479,6 +685,7 @@ export class AudioEngine {
   /** Feeds the lock screen / Control Center scrubber. */
   private updateMediaSessionPosition(): void {
     if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+    if (this.isLive()) return;
     const duration = this.audioElement.duration;
     if (!Number.isFinite(duration) || duration <= 0) return;
     try {
@@ -489,6 +696,16 @@ export class AudioEngine {
       });
     } catch {
       // Out-of-range values during a source change; the next update fixes it.
+    }
+  }
+
+  /** A broadcast has no position, so the lock screen shows no scrubber. */
+  private clearMediaSessionPosition(): void {
+    if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+    try {
+      navigator.mediaSession.setPositionState();
+    } catch {
+      // Older browsers require a position; the previous one simply stays.
     }
   }
 

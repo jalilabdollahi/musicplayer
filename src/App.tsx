@@ -4,9 +4,9 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Disc3, Folder, FolderOpen, Library, ListMusic, Music2, Plus, Trash2, TriangleAlert, Upload, Users } from "lucide-react";
+import { Disc3, Folder, FolderOpen, Library, ListMusic, Music2, Plus, Radio, Trash2, TriangleAlert, Upload, Users } from "lucide-react";
 import { AudioEngineSettings, LinkedFolder, Playlist, RepeatMode, SyncedLyricLine, Track } from "./types/music";
-import { audioEngine } from "./services/audioEngine";
+import { LiveStatus, audioEngine, isLiveTrack } from "./services/audioEngine";
 import {
   deleteFolder,
   deletePlaylist,
@@ -41,6 +41,17 @@ import {
   supportsFolderLinking,
 } from "./services/library";
 
+import {
+  RadioStation,
+  isRadioId,
+  loadFavoriteStations,
+  reportStationPlay,
+  saveFavoriteStations,
+  stationToTrack,
+  trackToStation,
+} from "./services/radio";
+
+import { RadioView } from "./components/RadioView";
 import { Sidebar } from "./components/Sidebar";
 import { TrackList, TrackActions } from "./components/TrackList";
 import { PlayerBar, nextPlaybackRate } from "./components/PlayerBar";
@@ -91,7 +102,8 @@ export type Route =
   | { kind: "folders" }
   /** A folder inside a source: a linked folder id or IMPORTED_SOURCE; path "" is its root. */
   | { kind: "folder"; source: string; path: string }
-  | { kind: "sources" };
+  | { kind: "sources" }
+  | { kind: "radio" };
 
 // ---------------------------------------------------------------- Session persistence
 
@@ -198,6 +210,8 @@ export default function App() {
   const [repeatMode, setRepeatMode] = useState<RepeatMode>(savedSession?.repeatMode ?? "all");
   const [shuffleHistory, setShuffleHistory] = useState<number[]>([]);
   const [audioSettings, setAudioSettings] = useState<AudioEngineSettings>(() => audioEngine.getSettings());
+  const [liveStatus, setLiveStatus] = useState<LiveStatus>("idle");
+  const [favoriteStations, setFavoriteStations] = useState<RadioStation[]>(loadFavoriteStations);
 
   // Overlays
   const [nowPlaying, setNowPlaying] = useState<{ panel?: NowPlayingPanel } | null>(null);
@@ -409,6 +423,10 @@ export default function App() {
       if (dur > 0 && Number.isFinite(dur)) setDuration(dur);
     });
     audioEngine.onStateChange(setIsPlaying);
+    audioEngine.onLiveStatus((status) => {
+      setLiveStatus(status);
+      if (status === "failed") showToast({ text: "This station isn't responding right now. Try another one." }, 6000);
+    });
     audioEngine.onEnded(() => handleTrackEndedRef.current());
     audioEngine.registerMediaSessionHandlers({
       play: () => handlePlayPauseRef.current(),
@@ -428,6 +446,11 @@ export default function App() {
       setCurrentIndex(index);
       setCurrentTime(0);
       setDuration(track.duration || 0);
+
+      if (isLiveTrack(track)) {
+        await audioEngine.loadTrack(track, true);
+        return;
+      }
 
       let audio: Blob | null = null;
       try {
@@ -503,7 +526,7 @@ export default function App() {
 
   const handlePrev = useCallback(() => {
     if (queue.length === 0) return;
-    if (audioEngine.getCurrentTime() > 3) {
+    if (!isLiveTrack(currentTrack) && audioEngine.getCurrentTime() > 3) {
       audioEngine.seek(0);
       return;
     }
@@ -514,7 +537,7 @@ export default function App() {
       return;
     }
     playTrackAtIndex((currentIndex - 1 + queue.length) % queue.length);
-  }, [queue.length, shuffle, shuffleHistory, currentIndex, playTrackAtIndex]);
+  }, [queue.length, currentTrack, shuffle, shuffleHistory, currentIndex, playTrackAtIndex]);
 
   const handlePlayPause = useCallback(async () => {
     if (!currentTrack) {
@@ -702,7 +725,26 @@ export default function App() {
     setInfoTrack((prev) => (prev?.id === id ? { ...prev, ...patch } : prev));
   };
 
+  const toggleStationFavorite = (station: RadioStation) => {
+    const isFavorite = !favoriteStations.some((s) => s.id === station.id);
+    const next = isFavorite ? [...favoriteStations, station] : favoriteStations.filter((s) => s.id !== station.id);
+    setFavoriteStations(next);
+    saveFavoriteStations(next);
+    patchTrack(station.id, { isFavorite });
+  };
+
+  const playStations = (stations: RadioStation[], index: number) => {
+    const favoriteIds = new Set(favoriteStations.map((s) => s.id));
+    reportStationPlay(stations[index]);
+    playList(stations.map((s) => stationToTrack(s, favoriteIds.has(s.id))), index);
+  };
+
   const toggleFavorite = async (id: string) => {
+    if (isRadioId(id)) {
+      const station = queue.find((t) => t.id === id);
+      if (station) toggleStationFavorite(trackToStation(station));
+      return;
+    }
     const target = tracks.find((t) => t.id === id);
     if (!target) return;
     const isFavorite = !target.isFavorite;
@@ -1089,9 +1131,10 @@ export default function App() {
 
   const renderView = () => {
     if (!ready) return null;
-    if (tracks.length === 0 && route.kind !== "sources") {
+    if (tracks.length === 0 && route.kind !== "sources" && route.kind !== "radio") {
       return (
         <Welcome
+          onOpenRadio={() => navigate({ kind: "radio" })}
           canLinkFolder={supportsFolderLinking}
           onLinkFolder={() => linkFolder()}
           onImportFolder={() => folderInputRef.current?.click()}
@@ -1335,6 +1378,19 @@ export default function App() {
         );
       }
 
+      case "radio":
+        return (
+          <RadioView
+            favorites={favoriteStations}
+            currentTrack={currentTrack}
+            isPlaying={isPlaying}
+            liveStatus={liveStatus}
+            onPlay={playStations}
+            onPlayPause={handlePlayPause}
+            onToggleFavorite={toggleStationFavorite}
+          />
+        );
+
       case "sources":
         return (
           <SourcesView
@@ -1364,6 +1420,7 @@ export default function App() {
     { label: "Songs", icon: <Music2 size={22} />, route: { kind: "songs" }, match: ["songs"] },
     { label: "Albums", icon: <Disc3 size={22} />, route: { kind: "albums" }, match: ["albums", "album"] },
     { label: "Artists", icon: <Users size={22} />, route: { kind: "artists" }, match: ["artists", "artist"] },
+    { label: "Radio", icon: <Radio size={22} />, route: { kind: "radio" }, match: ["radio"] },
     { label: "Library", icon: <Library size={22} />, route: { kind: "playlists" }, match: ["playlists", "playlist", "favorites", "recent", "sources", "folders", "folder"] },
   ];
 
@@ -1466,6 +1523,7 @@ export default function App() {
       </div>
 
       <PlayerBar
+        liveStatus={liveStatus}
         currentTrack={currentTrack}
         isPlaying={isPlaying}
         currentTime={currentTime}
@@ -1577,6 +1635,7 @@ export default function App() {
 
       {nowPlaying && (
         <NowPlaying
+          liveStatus={liveStatus}
           initialPanel={nowPlaying.panel}
           currentTrack={currentTrack}
           isPlaying={isPlaying}

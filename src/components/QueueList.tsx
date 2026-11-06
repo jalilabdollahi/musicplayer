@@ -32,7 +32,7 @@ export function QueueList({ queue, currentIndex, isPlaying, onPlayIndex, onRemov
         </span>
       ) : (
         <>
-          <span className="text-xs tabular-nums text-faint group-hover:hidden">{formatTime(track.duration)}</span>
+          <span className="text-xs tabular-nums text-faint group-hover:hidden">{track.source === "radio" ? "Live" : formatTime(track.duration)}</span>
           <button
             onClick={() => onRemoveIndex(index)}
             aria-label={`Remove ${track.title} from queue`}

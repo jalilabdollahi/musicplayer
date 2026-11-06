@@ -17,7 +17,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { RepeatMode, Track } from "../types/music";
-import { supportsVolumeControl } from "../services/audioEngine";
+import { LiveStatus, isLiveTrack, supportsVolumeControl } from "../services/audioEngine";
 import { Artwork, IconButton, cx, formatTime } from "./ui";
 
 export interface TransportProps {
@@ -27,6 +27,7 @@ export interface TransportProps {
   duration: number;
   shuffle: boolean;
   repeatMode: RepeatMode;
+  liveStatus: LiveStatus;
   onPlayPause: () => void;
   onNext: () => void;
   onPrev: () => void;
@@ -77,6 +78,7 @@ export function Transport({
         label={`Repeat: ${repeatMode}`}
         active={repeatMode !== "off"}
         onClick={onCycleRepeat}
+        disabled={isLiveTrack(currentTrack)}
         size={large ? "lg" : "md"}
       >
         {repeatMode === "one" ? <Repeat1 size={large ? 22 : 17} /> : <Repeat size={large ? 22 : 17} />}
@@ -85,19 +87,36 @@ export function Transport({
   );
 }
 
+/** Sits where the seek bar would be: a broadcast has no position to seek to. */
+function LiveIndicator({ status, isPlaying, large }: { status: LiveStatus; isPlaying: boolean; large: boolean }) {
+  const label = status === "failed" ? "Station unavailable" : status === "connecting" ? "Connecting…" : isPlaying ? "Live" : "Paused";
+  const onAir = status === "live" && isPlaying;
+  return (
+    <div role="status" className={cx("flex items-center justify-center gap-2 font-semibold", large ? "h-9 w-full text-sm" : "h-4 text-[11px]")}>
+      <span className={cx("size-2 rounded-full", onAir ? "animate-pulse bg-red-500" : "bg-faint")} aria-hidden="true" />
+      <span className={onAir ? "uppercase tracking-[0.08em]" : "text-muted"}>{label}</span>
+    </div>
+  );
+}
+
 export function Scrubber({
+  live,
   currentTime,
   duration,
   onSeek,
   disabled,
   large = false,
 }: {
+  /** Set while a live station is the current track. */
+  live?: { status: LiveStatus; isPlaying: boolean };
   currentTime: number;
   duration: number;
   onSeek: (s: number) => void;
   disabled?: boolean;
   large?: boolean;
 }) {
+  if (live) return <LiveIndicator status={live.status} isPlaying={live.isPlaying} large={large} />;
+
   const progress = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
   const slider = (
     <input
@@ -212,6 +231,7 @@ interface PlayerBarProps extends TransportProps {
 export function PlayerBar(props: PlayerBarProps) {
   const { currentTrack, isPlaying, currentTime, duration, onPlayPause, onNext, onOpenNowPlaying, onToggleFavorite } = props;
   const progress = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+  const isLive = isLiveTrack(currentTrack);
 
   return (
     <>
@@ -252,15 +272,25 @@ export function PlayerBar(props: PlayerBarProps) {
         <div className="flex flex-col items-center gap-0.5">
           <Transport {...props} />
           <div className="w-full max-w-xl">
-            <Scrubber currentTime={currentTime} duration={duration} onSeek={props.onSeek} disabled={!currentTrack} />
+            <Scrubber
+              live={isLive ? { status: props.liveStatus, isPlaying } : undefined}
+              currentTime={currentTime}
+              duration={duration}
+              onSeek={props.onSeek}
+              disabled={!currentTrack}
+            />
           </div>
         </div>
 
         <div className="flex items-center justify-end gap-0.5">
-          <SpeedButton rate={props.playbackRate} onCycle={props.onCyclePlaybackRate} />
-          <IconButton label="Lyrics" onClick={() => onOpenNowPlaying("lyrics")} disabled={!currentTrack} size="sm">
-            <MicVocal size={17} />
-          </IconButton>
+          {!isLive && (
+            <>
+              <SpeedButton rate={props.playbackRate} onCycle={props.onCyclePlaybackRate} />
+              <IconButton label="Lyrics" onClick={() => onOpenNowPlaying("lyrics")} disabled={!currentTrack} size="sm">
+                <MicVocal size={17} />
+              </IconButton>
+            </>
+          )}
           <IconButton label="Queue" onClick={() => onOpenNowPlaying("queue")} size="sm">
             <ListMusic size={17} />
           </IconButton>
@@ -308,9 +338,11 @@ export function PlayerBar(props: PlayerBarProps) {
             >
               <SkipForward size={20} fill="currentColor" />
             </button>
-            <span className="absolute right-2 bottom-0 left-2 h-0.5 overflow-hidden rounded-full bg-white/15">
-              <span className="block h-full bg-fg" style={{ width: `${progress}%` }} />
-            </span>
+            {!isLive && (
+              <span className="absolute right-2 bottom-0 left-2 h-0.5 overflow-hidden rounded-full bg-white/15">
+                <span className="block h-full bg-fg" style={{ width: `${progress}%` }} />
+              </span>
+            )}
           </div>
         </div>
       )}
